@@ -1,0 +1,47 @@
+# Environment
+.env
+.venv/
+venv/
+ENV/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+
+# Databases
+*.db
+*.sqlite
+*.sqlite3
+
+# Raw and generated data
+data/*
+!data/.gitkeep
+*.csv
+*.tsv
+*.parquet
+*.feather
+*.xlsx
+*.xls
+
+# Generated plots
+*.png
+*.jpg
+*.jpeg
+*.svg
+*.pdf
+
+# Keep scaffold directories
+!reports/.gitkeep
+!notebooks/.gitkeep
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+Desktop.ini
+.idea/
+.vscode/

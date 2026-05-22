@@ -4,7 +4,12 @@ import warnings
 
 import pandas as pd
 
-from macro_data_forecasting.models.baselines import fit_predict_ridge
+from macro_data_forecasting.models.baselines import (
+    fit_predict_lightgbm,
+    fit_predict_ridge,
+)
+
+SUPPORTED_MODELS = {"naive_last_value", "ridge", "lightgbm"}
 
 FORECAST_COLUMNS = [
     "forecast_timestamp",
@@ -70,7 +75,7 @@ def _resolve_feature_columns(
         else feature_columns
     )
     if not resolved:
-        msg = "No feature columns available for ridge validation."
+        msg = "No feature columns available for model validation."
         raise ValueError(msg)
     missing = [column for column in resolved if column not in dataset.columns]
     if missing:
@@ -89,7 +94,7 @@ def walk_forward_validate(
     if min_train_size < 1:
         msg = "min_train_size must be at least 1."
         raise ValueError(msg)
-    if model_name not in {"naive_last_value", "ridge"}:
+    if model_name not in SUPPORTED_MODELS:
         msg = f"Unsupported model_name: {model_name}"
         raise ValueError(msg)
 
@@ -102,7 +107,7 @@ def walk_forward_validate(
         raise ValueError(msg)
 
     resolved_features: list[str] = []
-    if model_name == "ridge":
+    if model_name != "naive_last_value":
         resolved_features = _resolve_feature_columns(prepared, feature_columns)
 
     forecasts: list[dict[str, object]] = []
@@ -112,9 +117,18 @@ def walk_forward_validate(
         test = prepared.iloc[[row_index]].copy()
         if model_name == "naive_last_value":
             prediction = float(train["target_value"].iloc[-1])
-        else:
+        elif model_name == "ridge":
             prediction = float(
                 fit_predict_ridge(
+                    train,
+                    test,
+                    resolved_features,
+                    target_column="target_value",
+                )[0],
+            )
+        else:
+            prediction = float(
+                fit_predict_lightgbm(
                     train,
                     test,
                     resolved_features,

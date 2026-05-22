@@ -29,6 +29,7 @@ Macroeconomic forecasting workflows are easy to contaminate with data that was r
 - Stage 3B: Point-in-time feature matrix construction
 - Stage 4A: Walk-forward validation with naive and ridge baselines
 - Stage 4B: Model comparison runner and metrics table
+- Stage 4C: Fixed-default LightGBM baseline
 - Stage 3: Point-in-time feature engineering
 - Stage 4: Modeling and walk-forward validation
 - Stage 5: Automated reporting
@@ -53,7 +54,9 @@ Stage 4A adds walk-forward validation plus naive last-value and ridge regression
 
 Stage 4B adds a model comparison runner that evaluates multiple existing baselines on the same feature matrix, saves forecast-level outputs, and produces a metrics table benchmarked against naive.
 
-No Treasury, market-data, LightGBM, or full reporting logic is implemented yet.
+Stage 4C adds a fixed-default LightGBM baseline to the same walk-forward validation and model comparison framework.
+
+No Treasury, market-data, hyperparameter tuning, or full reporting logic is implemented yet.
 
 ## Point-In-Time Columns
 
@@ -115,8 +118,9 @@ For each forecast row, the validator trains only on rows strictly before that ro
 
 - `naive_last_value`: predicts the previous known `target_value`.
 - `ridge`: fits a scikit-learn pipeline with median imputation, standard scaling, and ridge regression.
+- `lightgbm`: fits a fixed-default LightGBM regressor with median imputation.
 
-If ridge does not beat the naive baseline, the CLI reports that plainly.
+The LightGBM baseline uses conservative fixed defaults and no hyperparameter tuning. If ridge or LightGBM does not beat the naive baseline, the CLI reports that plainly.
 
 ## Model Comparison
 
@@ -124,7 +128,7 @@ The comparison runner executes requested models through the same walk-forward va
 
 Metrics include RMSE, MAE, directional accuracy, forecast count, RMSE/MAE improvement versus naive, and numeric flags for whether a model beats naive. Forecast comparisons are aligned by forecast timestamp, target id, and target reference date before benchmark metrics are computed.
 
-LightGBM is not implemented yet. It is expected to plug into this comparison framework in a later stage.
+LightGBM now plugs into the comparison framework as a fixed-default baseline. Automated markdown reporting is the next planned stage.
 
 ## First Target
 
@@ -232,10 +236,22 @@ Run walk-forward validation:
 uv run python -m macro_data_forecasting.cli validate-model --dataset data/processed/cpi_feature_matrix.csv --model ridge --output reports/ridge_forecasts.csv
 ```
 
+Run LightGBM walk-forward validation:
+
+```powershell
+uv run python -m macro_data_forecasting.cli validate-model --dataset data/processed/cpi_feature_matrix.csv --model lightgbm --output reports/lightgbm_forecasts.csv
+```
+
 Compare baseline models:
 
 ```powershell
 uv run python -m macro_data_forecasting.cli compare-models --dataset data/processed/cpi_feature_matrix.csv --models naive_last_value ridge --output-dir reports
+```
+
+Compare all current baselines:
+
+```powershell
+uv run python -m macro_data_forecasting.cli compare-models --dataset data/processed/cpi_feature_matrix.csv --models naive_last_value ridge lightgbm --output-dir reports
 ```
 
 The included `data/reference/cpi_release_calendar_sample.csv` is only for tests and examples. It is not a complete historical CPI release calendar and should not be used as the production source for point-in-time CPI backtests.

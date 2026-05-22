@@ -94,6 +94,33 @@ def test_run_model_comparison_uses_naive_benchmark_when_not_requested() -> None:
     assert pd.notna(ridge["mae_vs_naive"])
 
 
+def test_run_model_comparison_works_with_lightgbm() -> None:
+    """Verify LightGBM plugs into the comparison runner."""
+    forecasts, metrics = run_model_comparison(
+        _feature_dataset(),
+        models=["lightgbm"],
+        min_train_size=4,
+    )
+
+    assert set(forecasts["model_name"]) == {"lightgbm"}
+    assert list(metrics["model_name"]) == ["lightgbm"]
+
+
+def test_lightgbm_metrics_are_compared_to_naive() -> None:
+    """Verify LightGBM metrics include naive-relative comparison values."""
+    _forecasts, metrics = run_model_comparison(
+        _feature_dataset(),
+        models=["naive_last_value", "lightgbm"],
+        min_train_size=4,
+    )
+
+    lightgbm = metrics.loc[metrics["model_name"] == "lightgbm"].iloc[0]
+    assert pd.notna(lightgbm["rmse_vs_naive"])
+    assert pd.notna(lightgbm["mae_vs_naive"])
+    assert lightgbm["beats_naive_rmse"] in {0.0, 1.0}
+    assert lightgbm["beats_naive_mae"] in {0.0, 1.0}
+
+
 def test_ridge_comparison_aligns_against_naive() -> None:
     """Verify comparison metrics are built on aligned forecast rows."""
     _forecasts, metrics = run_model_comparison(

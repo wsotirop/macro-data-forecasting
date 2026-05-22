@@ -4,6 +4,7 @@ import pandas as pd
 import pytest
 
 from macro_data_forecasting.models.baselines import (
+    fit_predict_lightgbm,
     fit_predict_ridge,
     naive_last_value_predictions,
 )
@@ -79,3 +80,59 @@ def test_fit_predict_ridge_handles_nan_features_with_imputation() -> None:
 
     assert predictions.shape == (1,)
     assert pd.notna(predictions[0])
+
+
+def test_fit_predict_lightgbm_returns_expected_shape() -> None:
+    """Verify LightGBM baseline returns one prediction per test row."""
+    train = pd.DataFrame(
+        {
+            "target_value": [1.0, 2.0, 3.0, 4.0, 5.0],
+            "feature_x": [1.0, 2.0, 3.0, 4.0, 5.0],
+        },
+    )
+    test = pd.DataFrame({"target_value": [6.0], "feature_x": [6.0]})
+
+    predictions = fit_predict_lightgbm(train, test, ["feature_x"])
+
+    assert predictions.shape == (1,)
+    assert pd.notna(predictions[0])
+
+
+def test_fit_predict_lightgbm_raises_with_no_features() -> None:
+    """Verify LightGBM baseline requires feature columns."""
+    train = pd.DataFrame({"target_value": [1.0, 2.0]})
+    test = pd.DataFrame({"target_value": [3.0]})
+
+    with pytest.raises(ValueError, match="at least one feature"):
+        fit_predict_lightgbm(train, test, [])
+
+
+def test_fit_predict_lightgbm_handles_nan_features_with_imputation() -> None:
+    """Verify LightGBM baseline imputes missing feature values."""
+    train = pd.DataFrame(
+        {
+            "target_value": [1.0, 2.0, 3.0, 4.0, 5.0],
+            "feature_x": [1.0, None, 3.0, 4.0, 5.0],
+        },
+    )
+    test = pd.DataFrame({"target_value": [6.0], "feature_x": [None]})
+
+    predictions = fit_predict_lightgbm(train, test, ["feature_x"])
+
+    assert predictions.shape == (1,)
+    assert pd.notna(predictions[0])
+
+
+def test_fit_predict_lightgbm_predictions_are_numeric() -> None:
+    """Verify LightGBM predictions are numeric."""
+    train = pd.DataFrame(
+        {
+            "target_value": [1.0, 2.0, 3.0, 4.0, 5.0],
+            "feature_x": [1.0, 2.0, 3.0, 4.0, 5.0],
+        },
+    )
+    test = pd.DataFrame({"target_value": [6.0], "feature_x": [6.0]})
+
+    predictions = fit_predict_lightgbm(train, test, ["feature_x"])
+
+    assert isinstance(float(predictions[0]), float)

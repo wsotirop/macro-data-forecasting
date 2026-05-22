@@ -124,7 +124,7 @@ def _build_parser() -> argparse.ArgumentParser:
     validate_model.add_argument("--dataset", type=Path, required=True)
     validate_model.add_argument(
         "--model",
-        choices=["naive_last_value", "ridge"],
+        choices=["naive_last_value", "ridge", "lightgbm"],
         required=True,
     )
     validate_model.add_argument("--min-train-size", type=int, default=24)
@@ -365,7 +365,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"Model: {args.model}")
         _print_metrics(metrics)
 
-        if args.model == "ridge":
+        if args.model != "naive_last_value":
             naive_forecasts = walk_forward_validate(
                 dataset,
                 model_name="naive_last_value",
@@ -375,13 +375,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             print("Naive comparison:")
             _print_metrics(comparison)
             if comparison["model_beats_naive_rmse"] == 1.0:
-                print("Model beats naive on RMSE.")
+                print(f"{args.model} beats naive on RMSE.")
             else:
-                print("Model does not beat naive on RMSE.")
+                print(f"{args.model} does not beat naive on RMSE.")
             if comparison["model_beats_naive_mae"] == 1.0:
-                print("Model beats naive on MAE.")
+                print(f"{args.model} beats naive on MAE.")
             else:
-                print("Model does not beat naive on MAE.")
+                print(f"{args.model} does not beat naive on MAE.")
 
         if args.output is not None:
             args.output.parent.mkdir(parents=True, exist_ok=True)
@@ -397,7 +397,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             min_train_size=args.min_train_size,
         )
         _print_dataframe(metrics, "No model metrics produced.")
-        _print_ridge_naive_comparison(metrics)
+        _print_naive_comparisons(metrics)
 
         if args.output_dir is not None:
             paths = save_model_comparison_outputs(
@@ -431,19 +431,18 @@ def _print_metrics(metrics: dict[str, float]) -> None:
         print(f"{key}: {value}")
 
 
-def _print_ridge_naive_comparison(metrics: pd.DataFrame) -> None:
-    ridge_rows = metrics.loc[metrics["model_name"] == "ridge"]
-    if ridge_rows.empty:
-        return
-    ridge = ridge_rows.iloc[0]
-    if ridge["beats_naive_rmse"] == 1.0:
-        print("ridge beats naive on RMSE.")
-    else:
-        print("ridge does not beat naive on RMSE.")
-    if ridge["beats_naive_mae"] == 1.0:
-        print("ridge beats naive on MAE.")
-    else:
-        print("ridge does not beat naive on MAE.")
+def _print_naive_comparisons(metrics: pd.DataFrame) -> None:
+    benchmarked = metrics.loc[metrics["model_name"] != "naive_last_value"]
+    for _index, row in benchmarked.iterrows():
+        model_name = row["model_name"]
+        if row["beats_naive_rmse"] == 1.0:
+            print(f"{model_name} beats naive on RMSE.")
+        else:
+            print(f"{model_name} does not beat naive on RMSE.")
+        if row["beats_naive_mae"] == 1.0:
+            print(f"{model_name} beats naive on MAE.")
+        else:
+            print(f"{model_name} does not beat naive on MAE.")
 
 
 def _create_relaxed_feature_dataset(targets: pd.DataFrame) -> pd.DataFrame:

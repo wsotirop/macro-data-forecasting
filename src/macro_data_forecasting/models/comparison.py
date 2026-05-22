@@ -8,7 +8,7 @@ import pandas as pd
 from macro_data_forecasting.evaluation.metrics import evaluate_forecasts
 from macro_data_forecasting.models.validation import walk_forward_validate
 
-SUPPORTED_COMPARISON_MODELS = {"naive_last_value", "ridge"}
+SUPPORTED_COMPARISON_MODELS = {"naive_last_value", "ridge", "lightgbm"}
 ALIGNMENT_KEYS = ["forecast_timestamp", "target_id", "target_reference_date"]
 METRICS_COLUMNS = [
     "model_name",

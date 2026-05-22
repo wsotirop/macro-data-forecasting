@@ -51,6 +51,18 @@ def test_ridge_walk_forward_produces_correct_fold_count() -> None:
     assert (forecasts["model_name"] == "ridge").all()
 
 
+def test_lightgbm_walk_forward_produces_correct_fold_count() -> None:
+    """Verify LightGBM walk-forward forecast count follows min_train_size."""
+    forecasts = validation.walk_forward_validate(
+        _feature_dataset(8),
+        model_name="lightgbm",
+        min_train_size=3,
+    )
+
+    assert len(forecasts) == 5
+    assert (forecasts["model_name"] == "lightgbm").all()
+
+
 def test_each_fold_trains_only_on_prior_rows(monkeypatch) -> None:
     """Verify ridge training slices exclude the current forecast row."""
     seen_slices: list[tuple[pd.Timestamp, pd.Timestamp]] = []
@@ -72,6 +84,32 @@ def test_each_fold_trains_only_on_prior_rows(monkeypatch) -> None:
     monkeypatch.setattr(validation, "fit_predict_ridge", spy_fit_predict)
 
     validation.walk_forward_validate(_feature_dataset(6), "ridge", min_train_size=3)
+
+    assert seen_slices
+    assert all(train_max < test_time for train_max, test_time in seen_slices)
+
+
+def test_lightgbm_trains_only_on_prior_rows(monkeypatch) -> None:
+    """Verify LightGBM training slices exclude current and future rows."""
+    seen_slices: list[tuple[pd.Timestamp, pd.Timestamp]] = []
+
+    def spy_fit_predict(
+        train: pd.DataFrame,
+        test: pd.DataFrame,
+        feature_columns: list[str],
+        target_column: str = "target_value",
+    ):
+        seen_slices.append(
+            (
+                train["forecast_timestamp"].max(),
+                test["forecast_timestamp"].iloc[0],
+            ),
+        )
+        return [train[target_column].iloc[-1]]
+
+    monkeypatch.setattr(validation, "fit_predict_lightgbm", spy_fit_predict)
+
+    validation.walk_forward_validate(_feature_dataset(6), "lightgbm", min_train_size=3)
 
     assert seen_slices
     assert all(train_max < test_time for train_max, test_time in seen_slices)

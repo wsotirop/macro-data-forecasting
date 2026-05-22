@@ -536,6 +536,33 @@ def test_cli_validate_model_ridge_reports_naive_comparison(tmp_path, capsys) -> 
     assert "model_beats_naive_rmse" in output
 
 
+def test_cli_validate_model_lightgbm_works_on_feature_matrix_csv(
+    tmp_path,
+    capsys,
+) -> None:
+    """Verify validate-model supports LightGBM."""
+    dataset_path = tmp_path / "feature_matrix.csv"
+    _validation_dataset().to_csv(dataset_path, index=False)
+
+    result = cli.main(
+        [
+            "validate-model",
+            "--dataset",
+            str(dataset_path),
+            "--model",
+            "lightgbm",
+            "--min-train-size",
+            "3",
+        ],
+    )
+
+    output = capsys.readouterr().out
+    assert result == 0
+    assert "Model: lightgbm" in output
+    assert "Naive comparison:" in output
+    assert "lightgbm" in output
+
+
 def test_cli_compare_models_prints_metrics_table(tmp_path, capsys) -> None:
     """Verify compare-models prints comparison metrics for requested models."""
     dataset_path = tmp_path / "feature_matrix.csv"
@@ -549,6 +576,7 @@ def test_cli_compare_models_prints_metrics_table(tmp_path, capsys) -> None:
             "--models",
             "naive_last_value",
             "ridge",
+            "lightgbm",
             "--min-train-size",
             "3",
         ],
@@ -559,11 +587,12 @@ def test_cli_compare_models_prints_metrics_table(tmp_path, capsys) -> None:
     assert "model_name" in output
     assert "naive_last_value" in output
     assert "ridge" in output
+    assert "lightgbm" in output
     assert "rmse_vs_naive" in output
     assert "naive on RMSE" in output
 
 
-def test_cli_compare_models_writes_outputs(tmp_path) -> None:
+def test_cli_compare_models_with_lightgbm_writes_outputs(tmp_path) -> None:
     """Verify compare-models writes forecast and metrics CSV outputs."""
     dataset_path = tmp_path / "feature_matrix.csv"
     output_dir = tmp_path / "reports"
@@ -577,6 +606,7 @@ def test_cli_compare_models_writes_outputs(tmp_path) -> None:
             "--models",
             "naive_last_value",
             "ridge",
+            "lightgbm",
             "--min-train-size",
             "3",
             "--output-dir",
@@ -591,5 +621,9 @@ def test_cli_compare_models_writes_outputs(tmp_path) -> None:
     assert result == 0
     assert forecasts.exists()
     assert metrics.exists()
-    assert "prediction" in pd.read_csv(forecasts).columns
-    assert "rmse_vs_naive" in pd.read_csv(metrics).columns
+    forecast_output = pd.read_csv(forecasts)
+    metrics_output = pd.read_csv(metrics)
+    assert "prediction" in forecast_output.columns
+    assert "lightgbm" in set(forecast_output["model_name"])
+    assert "rmse_vs_naive" in metrics_output.columns
+    assert "lightgbm" in set(metrics_output["model_name"])

@@ -1,7 +1,10 @@
 """Database schema and initialization helpers."""
 
+from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
+import pandas as pd
 from sqlalchemy import (
     Column,
     Date,
@@ -16,6 +19,15 @@ from sqlalchemy import (
 from sqlalchemy.engine import Engine, make_url
 
 from macro_data_forecasting.config import get_settings
+
+REQUIRED_OBSERVATION_COLUMNS = (
+    "series_id",
+    "date",
+    "value",
+    "source",
+    "release_date",
+    "fetched_at",
+)
 
 metadata = MetaData()
 
@@ -47,3 +59,41 @@ def initialize_database(database_url: str | None = None) -> Engine:
     engine = get_engine(database_url)
     metadata.create_all(engine)
     return engine
+
+
+def _require_columns(frame: pd.DataFrame, required: Sequence[str]) -> None:
+    missing = [column for column in required if column not in frame.columns]
+    if missing:
+        msg = f"Missing required observation columns: {missing}"
+        raise ValueError(msg)
+
+
+def _records_from_observations(frame: pd.DataFrame) -> list[dict[str, Any]]:
+    _require_columns(frame, REQUIRED_OBSERVATION_COLUMNS)
+    observations = frame.loc[:, REQUIRED_OBSERVATION_COLUMNS].copy()
+    observations["date"] = pd.to_datetime(observations["date"], errors="raise").dt.date
+    observations["release_date"] = pd.to_datetime(
+        observations["release_date"],
+        errors="raise",
+    ).dt.date
+    observations["fetched_at"] = pd.to_datetime(
+        observations["fetched_at"],
+        errors="raise",
+        utc=True,
+    )
+    observations["value"] = pd.to_numeric(observations["value"], errors="raise")
+    observations = observations.astype(object).where(pd.notna(observations), None)
+    return observations.to_dict(orient="records")
+
+
+def insert_observations(df: pd.DataFrame, database_url: str | None = None) -> int:
+    """Insert normalized macro observations and return the inserted row count."""
+    records = _records_from_observations(df)
+    if not records:
+        return 0
+
+    engine = initialize_database(database_url)
+    with engine.begin() as connection:
+        result = connection.execute(macro_observations.insert(), records)
+    engine.dispose()
+    return int(result.rowcount)

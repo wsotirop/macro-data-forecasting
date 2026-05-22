@@ -30,6 +30,7 @@ Macroeconomic forecasting workflows are easy to contaminate with data that was r
 - Stage 4A: Walk-forward validation with naive and ridge baselines
 - Stage 4B: Model comparison runner and metrics table
 - Stage 4C: Fixed-default LightGBM baseline
+- Stage 5A: Automated markdown research reporting
 - Stage 3: Point-in-time feature engineering
 - Stage 4: Modeling and walk-forward validation
 - Stage 5: Automated reporting
@@ -56,7 +57,9 @@ Stage 4B adds a model comparison runner that evaluates multiple existing baselin
 
 Stage 4C adds a fixed-default LightGBM baseline to the same walk-forward validation and model comparison framework.
 
-No Treasury, market-data, hyperparameter tuning, or full reporting logic is implemented yet.
+Stage 5A adds automated markdown research reporting from saved model comparison metrics and forecast outputs.
+
+No Treasury, market-data, hyperparameter tuning, notebooks, or external report publishing logic is implemented yet.
 
 ## Point-In-Time Columns
 
@@ -128,7 +131,13 @@ The comparison runner executes requested models through the same walk-forward va
 
 Metrics include RMSE, MAE, directional accuracy, forecast count, RMSE/MAE improvement versus naive, and numeric flags for whether a model beats naive. Forecast comparisons are aligned by forecast timestamp, target id, and target reference date before benchmark metrics are computed.
 
-LightGBM now plugs into the comparison framework as a fixed-default baseline. Automated markdown reporting is the next planned stage.
+LightGBM now plugs into the comparison framework as a fixed-default baseline.
+
+## Automated Reports
+
+Stage 5A generates reproducible markdown reports from model comparison metrics and forecast-level outputs. Reports include a summary, model metrics table, naive benchmark interpretation, forecast-output summary, methodology, limitations, and optional notes.
+
+Reports should state plainly when a model does not beat the naive baseline. They should not claim ridge or LightGBM beats naive unless the saved metrics show it.
 
 ## First Target
 
@@ -252,6 +261,18 @@ Compare all current baselines:
 
 ```powershell
 uv run python -m macro_data_forecasting.cli compare-models --dataset data/processed/cpi_feature_matrix.csv --models naive_last_value ridge lightgbm --output-dir reports
+```
+
+Generate a markdown report from saved comparison outputs:
+
+```powershell
+uv run python -m macro_data_forecasting.cli generate-report --metrics reports/model_comparison_metrics.csv --forecasts reports/model_comparison_forecasts.csv --output reports/baseline_report.md
+```
+
+Run comparison and generate a report in one step:
+
+```powershell
+uv run python -m macro_data_forecasting.cli compare-models --dataset data/processed/cpi_feature_matrix.csv --models naive_last_value ridge lightgbm --output-dir reports --report reports/baseline_report.md
 ```
 
 The included `data/reference/cpi_release_calendar_sample.csv` is only for tests and examples. It is not a complete historical CPI release calendar and should not be used as the production source for point-in-time CPI backtests.

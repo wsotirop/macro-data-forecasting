@@ -463,6 +463,43 @@ def _validation_dataset(rows: int = 8) -> pd.DataFrame:
     )
 
 
+def _comparison_metrics() -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "model_name": ["naive_last_value", "ridge"],
+            "n_forecasts": [2, 2],
+            "rmse": [1.0, 1.2],
+            "mae": [0.8, 0.9],
+            "directional_accuracy": [0.5, 0.5],
+            "beats_naive_rmse": [0.0, 0.0],
+            "beats_naive_mae": [0.0, 0.0],
+            "rmse_vs_naive": [0.0, -0.2],
+            "mae_vs_naive": [0.0, -0.1],
+        },
+    )
+
+
+def _comparison_forecasts() -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "forecast_timestamp": pd.to_datetime(
+                ["2026-01-01", "2026-02-01", "2026-01-01", "2026-02-01"],
+            ),
+            "target_id": ["cpi_mom"] * 4,
+            "target_reference_date": pd.to_datetime(
+                ["2025-12-01", "2026-01-01", "2025-12-01", "2026-01-01"],
+            ),
+            "target_release_date": pd.to_datetime(
+                ["2026-01-01", "2026-02-01", "2026-01-01", "2026-02-01"],
+            ),
+            "actual": [1.0, 2.0, 1.0, 2.0],
+            "prediction": [0.9, 1.8, 1.2, 2.3],
+            "model_name": ["naive_last_value", "naive_last_value", "ridge", "ridge"],
+            "fold_number": [1, 2, 1, 2],
+        },
+    )
+
+
 def test_cli_validate_model_works_on_feature_matrix_csv(tmp_path, capsys) -> None:
     """Verify validate-model prints metrics for a feature matrix CSV."""
     dataset_path = tmp_path / "feature_matrix.csv"
@@ -627,3 +664,62 @@ def test_cli_compare_models_with_lightgbm_writes_outputs(tmp_path) -> None:
     assert "lightgbm" in set(forecast_output["model_name"])
     assert "rmse_vs_naive" in metrics_output.columns
     assert "lightgbm" in set(metrics_output["model_name"])
+
+
+def test_cli_generate_report_writes_markdown(tmp_path, capsys) -> None:
+    """Verify generate-report creates markdown from saved CSV outputs."""
+    metrics_path = tmp_path / "metrics.csv"
+    forecasts_path = tmp_path / "forecasts.csv"
+    output_path = tmp_path / "baseline_report.md"
+    _comparison_metrics().to_csv(metrics_path, index=False)
+    _comparison_forecasts().to_csv(forecasts_path, index=False)
+
+    result = cli.main(
+        [
+            "generate-report",
+            "--metrics",
+            str(metrics_path),
+            "--forecasts",
+            str(forecasts_path),
+            "--output",
+            str(output_path),
+            "--notes",
+            "CLI note.",
+        ],
+    )
+
+    output = capsys.readouterr().out
+    content = output_path.read_text(encoding="utf-8")
+    assert result == 0
+    assert "Wrote report" in output
+    assert output_path.exists()
+    assert "## Model Comparison" in content
+    assert "ridge does not beat the naive baseline on RMSE." in content
+    assert "CLI note." in content
+
+
+def test_cli_compare_models_report_option_writes_markdown(tmp_path) -> None:
+    """Verify compare-models can generate a report from in-memory outputs."""
+    dataset_path = tmp_path / "feature_matrix.csv"
+    report_path = tmp_path / "comparison_report.md"
+    _validation_dataset().to_csv(dataset_path, index=False)
+
+    result = cli.main(
+        [
+            "compare-models",
+            "--dataset",
+            str(dataset_path),
+            "--models",
+            "naive_last_value",
+            "ridge",
+            "--min-train-size",
+            "3",
+            "--report",
+            str(report_path),
+        ],
+    )
+
+    content = report_path.read_text(encoding="utf-8")
+    assert result == 0
+    assert report_path.exists()
+    assert "## Naive Benchmark Interpretation" in content

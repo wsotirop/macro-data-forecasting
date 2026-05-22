@@ -32,6 +32,9 @@ from macro_data_forecasting.models.comparison import (
     save_model_comparison_outputs,
 )
 from macro_data_forecasting.models.validation import walk_forward_validate
+from macro_data_forecasting.reports.generate_report import (
+    generate_model_comparison_report,
+)
 from macro_data_forecasting.sources.bls import BlsClient
 from macro_data_forecasting.sources.bls_release_calendar import (
     assert_calendar_coverage,
@@ -143,6 +146,18 @@ def _build_parser() -> argparse.ArgumentParser:
     compare_models.add_argument("--min-train-size", type=int, default=24)
     compare_models.add_argument("--output-dir", type=Path)
     compare_models.add_argument("--prefix", default="model_comparison")
+    compare_models.add_argument("--report", type=Path)
+
+    generate_report = subparsers.add_parser(
+        "generate-report",
+        help="Generate a markdown model comparison report from saved CSV outputs",
+    )
+    generate_report.add_argument("--metrics", type=Path, required=True)
+    generate_report.add_argument("--forecasts", type=Path, required=True)
+    generate_report.add_argument("--output", type=Path, required=True)
+    generate_report.add_argument("--title", default="Macro Data Forecasting Report")
+    generate_report.add_argument("--dataset", type=Path)
+    generate_report.add_argument("--notes")
 
     return parser
 
@@ -408,6 +423,28 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
             print(f"Wrote forecasts to {paths['forecasts']}")
             print(f"Wrote metrics to {paths['metrics']}")
+        if args.report is not None:
+            report_path = generate_model_comparison_report(
+                metrics=metrics,
+                forecasts=forecasts,
+                output_path=args.report,
+                dataset_path=args.dataset,
+            )
+            print(f"Wrote report to {report_path}")
+        return 0
+
+    if args.command == "generate-report":
+        metrics = pd.read_csv(args.metrics)
+        forecasts = pd.read_csv(args.forecasts)
+        report_path = generate_model_comparison_report(
+            metrics=metrics,
+            forecasts=forecasts,
+            output_path=args.output,
+            title=args.title,
+            dataset_path=args.dataset,
+            notes=args.notes,
+        )
+        print(f"Wrote report to {report_path}")
         return 0
 
     parser.error(f"Unsupported command: {args.command}")

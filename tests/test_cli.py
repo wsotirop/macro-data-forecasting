@@ -564,6 +564,56 @@ def test_cli_build_feature_matrix_writes_output_csv(tmp_path) -> None:
     assert len(written) == 2
 
 
+def test_cli_feature_diagnostics_outputs_summary(tmp_path, capsys) -> None:
+    """Verify feature-diagnostics prints missingness summary."""
+    dataset_path = tmp_path / "feature_matrix.csv"
+    pd.DataFrame(
+        {
+            "forecast_timestamp": pd.date_range("2026-01-01", periods=3, freq="MS"),
+            "target_value": [1.0, 2.0, 3.0],
+            "feature_a": [None, 1.0, 2.0],
+            "feature_b": [None, None, None],
+        },
+    ).to_csv(dataset_path, index=False)
+
+    result = cli.main(["feature-diagnostics", "--dataset", str(dataset_path)])
+
+    output = capsys.readouterr().out
+    assert result == 0
+    assert "feature_name" in output
+    assert "feature_a" in output
+    assert "feature_b" in output
+    assert "missing_pct" in output
+
+
+def test_cli_feature_diagnostics_writes_csv(tmp_path) -> None:
+    """Verify feature-diagnostics writes CSV output."""
+    dataset_path = tmp_path / "feature_matrix.csv"
+    output_path = tmp_path / "feature_diagnostics.csv"
+    pd.DataFrame(
+        {
+            "forecast_timestamp": pd.date_range("2026-01-01", periods=2, freq="MS"),
+            "target_value": [1.0, 2.0],
+            "feature_a": [None, 1.0],
+        },
+    ).to_csv(dataset_path, index=False)
+
+    result = cli.main(
+        [
+            "feature-diagnostics",
+            "--dataset",
+            str(dataset_path),
+            "--output",
+            str(output_path),
+        ],
+    )
+
+    written = pd.read_csv(output_path)
+    assert result == 0
+    assert output_path.exists()
+    assert list(written["feature_name"]) == ["feature_a"]
+
+
 def _validation_dataset(rows: int = 8) -> pd.DataFrame:
     return pd.DataFrame(
         {

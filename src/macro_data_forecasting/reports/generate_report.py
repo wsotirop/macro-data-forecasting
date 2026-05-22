@@ -146,7 +146,9 @@ def _build_summary_section(
     lines = [
         f"- Generated timestamp: {generated_at}",
         f"- Number of models: {metrics['model_name'].nunique()}",
-        f"- Number of forecasts: {len(forecasts)}",
+        f"- Forecast rows: {len(forecasts)}",
+        "- Unique forecast timestamps: "
+        f"{forecasts['forecast_timestamp'].dropna().nunique()}",
     ]
     if dataset_path is not None:
         lines.insert(1, f"- Dataset path: {dataset_path}")

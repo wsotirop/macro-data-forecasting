@@ -83,6 +83,18 @@ def test_report_contains_title_and_expected_sections(tmp_path) -> None:
     assert "## Limitations" in content
 
 
+def test_report_summary_distinguishes_rows_from_unique_forecasts(tmp_path) -> None:
+    """Verify summary separates model rows from unique forecast timestamps."""
+    output_path = tmp_path / "baseline_report.md"
+
+    generate_model_comparison_report(_metrics(), _forecasts(), output_path)
+
+    content = output_path.read_text(encoding="utf-8")
+    assert "- Forecast rows: 9" in content
+    assert "- Unique forecast timestamps: 3" in content
+    assert "- Number of models: 3" in content
+
+
 def test_report_plainly_says_when_ridge_does_not_beat_naive(tmp_path) -> None:
     """Verify losing models are described plainly."""
     output_path = tmp_path / "baseline_report.md"

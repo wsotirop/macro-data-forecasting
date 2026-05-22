@@ -84,6 +84,25 @@ def _resolve_feature_columns(
     return resolved
 
 
+def _usable_fold_feature_columns(
+    train: pd.DataFrame,
+    feature_columns: list[str],
+    model_name: str,
+) -> list[str]:
+    usable = [
+        column
+        for column in feature_columns
+        if not train[column].isna().all()
+    ]
+    if not usable:
+        msg = (
+            f"No usable feature columns remain for {model_name} validation "
+            "after dropping all-NaN training columns for this fold."
+        )
+        raise ValueError(msg)
+    return usable
+
+
 def walk_forward_validate(
     dataset: pd.DataFrame,
     model_name: str,
@@ -118,20 +137,30 @@ def walk_forward_validate(
         if model_name == "naive_last_value":
             prediction = float(train["target_value"].iloc[-1])
         elif model_name == "ridge":
+            fold_features = _usable_fold_feature_columns(
+                train,
+                resolved_features,
+                model_name,
+            )
             prediction = float(
                 fit_predict_ridge(
                     train,
                     test,
-                    resolved_features,
+                    fold_features,
                     target_column="target_value",
                 )[0],
             )
         else:
+            fold_features = _usable_fold_feature_columns(
+                train,
+                resolved_features,
+                model_name,
+            )
             prediction = float(
                 fit_predict_lightgbm(
                     train,
                     test,
-                    resolved_features,
+                    fold_features,
                     target_column="target_value",
                 )[0],
             )

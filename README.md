@@ -135,6 +135,8 @@ feature_{series_id}_latest
 
 Optional lagged target features can be added as `feature_target_lag_1`, etc. These lags are computed from prior target rows only and do not use the current target value.
 
+Feature diagnostics summarize missing values by feature, including first and last valid forecast timestamps. During walk-forward validation, ridge and LightGBM drop features that are entirely missing in the current training fold, without removing those columns from the saved dataset.
+
 ## Walk-Forward Validation
 
 Macro model validation uses expanding-window walk-forward validation only. No k-fold cross-validation is used because it would mix future and past observations in a way that can create lookahead bias.
@@ -298,6 +300,12 @@ Build a simple point-in-time feature matrix:
 
 ```powershell
 uv run python -m macro_data_forecasting.cli build-feature-matrix --target-series-id CUSR0000SA0 --features UNRATE FEDFUNDS DGS2 DGS10 T10Y2Y --output data/processed/cpi_feature_matrix.csv
+```
+
+Inspect feature missingness:
+
+```powershell
+uv run python -m macro_data_forecasting.cli feature-diagnostics --dataset data/processed/cpi_feature_matrix.csv --output reports/feature_missingness.csv
 ```
 
 Run walk-forward validation:

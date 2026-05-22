@@ -22,6 +22,7 @@ from macro_data_forecasting.features.dataset_contract import (
     create_empty_feature_dataset,
     validate_target_frame,
 )
+from macro_data_forecasting.features.diagnostics import summarize_feature_missingness
 from macro_data_forecasting.features.feature_matrix import (
     add_lagged_target_features,
     build_point_in_time_feature_matrix,
@@ -183,6 +184,13 @@ def _build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=Path("reports/plots"),
     )
+
+    feature_diagnostics = subparsers.add_parser(
+        "feature-diagnostics",
+        help="Summarize missingness in feature columns",
+    )
+    feature_diagnostics.add_argument("--dataset", type=Path, required=True)
+    feature_diagnostics.add_argument("--output", type=Path)
 
     return parser
 
@@ -527,6 +535,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             plot_paths=plot_paths,
         )
         print(f"Wrote report to {report_path}")
+        return 0
+
+    if args.command == "feature-diagnostics":
+        dataset = pd.read_csv(args.dataset)
+        summary = summarize_feature_missingness(dataset)
+        _print_dataframe(summary, "No feature columns found.")
+        if args.output is not None:
+            args.output.parent.mkdir(parents=True, exist_ok=True)
+            summary.to_csv(args.output, index=False)
+            print(f"Wrote feature diagnostics to {args.output}")
         return 0
 
     parser.error(f"Unsupported command: {args.command}")

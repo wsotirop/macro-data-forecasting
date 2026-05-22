@@ -89,6 +89,30 @@ def test_each_fold_trains_only_on_prior_rows(monkeypatch) -> None:
     assert all(train_max < test_time for train_max, test_time in seen_slices)
 
 
+def test_ridge_drops_all_nan_training_features_per_fold(monkeypatch) -> None:
+    """Verify ridge validation excludes all-NaN training columns by fold."""
+    dataset = _feature_dataset(6)
+    dataset["feature_late_start"] = [None, None, None, None, 1.0, 2.0]
+    seen_features: list[list[str]] = []
+
+    def spy_fit_predict(
+        train: pd.DataFrame,
+        test: pd.DataFrame,
+        feature_columns: list[str],
+        target_column: str = "target_value",
+    ):
+        seen_features.append(feature_columns)
+        return [train[target_column].iloc[-1]]
+
+    monkeypatch.setattr(validation, "fit_predict_ridge", spy_fit_predict)
+
+    validation.walk_forward_validate(dataset, "ridge", min_train_size=3)
+
+    assert seen_features
+    assert "feature_late_start" not in seen_features[0]
+    assert "feature_UNRATE_latest" in seen_features[0]
+
+
 def test_lightgbm_trains_only_on_prior_rows(monkeypatch) -> None:
     """Verify LightGBM training slices exclude current and future rows."""
     seen_slices: list[tuple[pd.Timestamp, pd.Timestamp]] = []
@@ -113,6 +137,30 @@ def test_lightgbm_trains_only_on_prior_rows(monkeypatch) -> None:
 
     assert seen_slices
     assert all(train_max < test_time for train_max, test_time in seen_slices)
+
+
+def test_lightgbm_drops_all_nan_training_features_per_fold(monkeypatch) -> None:
+    """Verify LightGBM validation excludes all-NaN training columns by fold."""
+    dataset = _feature_dataset(6)
+    dataset["feature_late_start"] = [None, None, None, None, 1.0, 2.0]
+    seen_features: list[list[str]] = []
+
+    def spy_fit_predict(
+        train: pd.DataFrame,
+        test: pd.DataFrame,
+        feature_columns: list[str],
+        target_column: str = "target_value",
+    ):
+        seen_features.append(feature_columns)
+        return [train[target_column].iloc[-1]]
+
+    monkeypatch.setattr(validation, "fit_predict_lightgbm", spy_fit_predict)
+
+    validation.walk_forward_validate(dataset, "lightgbm", min_train_size=3)
+
+    assert seen_features
+    assert "feature_late_start" not in seen_features[0]
+    assert "feature_UNRATE_latest" in seen_features[0]
 
 
 def test_walk_forward_insufficient_rows_raises() -> None:

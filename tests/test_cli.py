@@ -147,14 +147,19 @@ def test_cli_fetch_fred_initial_release_records_vintage_parameters(
     parameters = json.loads(run["parameters_json"])
 
     assert result == 0
-    assert "Using FRED initial-release mode." in output
+    assert (
+        "Using FRED initial-release mode with full real-time window "
+        "1776-07-04 to 9999-12-31."
+    ) in output
     assert FakeFredClient.calls[0]["vintage_mode"] == "initial_release"
     assert FakeFredClient.calls[0]["output_type"] == 4
+    assert FakeFredClient.calls[0]["realtime_start"] == "1776-07-04"
+    assert FakeFredClient.calls[0]["realtime_end"] == "9999-12-31"
     assert parameters["vintage_mode"] == "initial_release"
     assert parameters["output_type"] == 4
     assert parameters["observation_start"] == "2010-01-01"
-    assert parameters["realtime_start"] is None
-    assert parameters["realtime_end"] is None
+    assert parameters["realtime_start"] == "1776-07-04"
+    assert parameters["realtime_end"] == "9999-12-31"
 
 
 def test_cli_fetch_fred_invalid_vintage_mode_fails() -> None:

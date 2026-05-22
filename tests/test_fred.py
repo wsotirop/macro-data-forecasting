@@ -113,7 +113,7 @@ def test_fred_missing_dot_values_become_nan(fred_payload: dict[str, Any]) -> Non
 def test_fred_initial_release_mode_sends_output_type_4(
     fred_payload: dict[str, Any],
 ) -> None:
-    """Verify initial-release mode requests FRED output_type=4."""
+    """Verify initial-release mode requests output_type=4 and full realtime window."""
     session = FakeSession(fred_payload)
     client = FredClient(api_key="test-key", session=session, backoff_seconds=0)
 
@@ -122,7 +122,30 @@ def test_fred_initial_release_mode_sends_output_type_4(
         vintage_mode="initial_release",
     )
 
-    assert session.calls[0]["params"]["output_type"] == 4
+    params = session.calls[0]["params"]
+    assert params["output_type"] == 4
+    assert params["realtime_start"] == "1776-07-04"
+    assert params["realtime_end"] == "9999-12-31"
+
+
+def test_fred_initial_release_preserves_explicit_realtime_window(
+    fred_payload: dict[str, Any],
+) -> None:
+    """Verify initial-release mode preserves user-provided realtime bounds."""
+    session = FakeSession(fred_payload)
+    client = FredClient(api_key="test-key", session=session, backoff_seconds=0)
+
+    client.fetch_series_observations(
+        series_id="UNRATE",
+        realtime_start="2018-01-01",
+        realtime_end="2020-01-01",
+        vintage_mode="initial_release",
+    )
+
+    params = session.calls[0]["params"]
+    assert params["output_type"] == 4
+    assert params["realtime_start"] == "2018-01-01"
+    assert params["realtime_end"] == "2020-01-01"
 
 
 def test_fred_initial_release_uses_observation_realtime_start(

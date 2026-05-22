@@ -17,6 +17,8 @@ FRED_API_BASE_URL = "https://api.stlouisfed.org/fred"
 NORMALIZED_COLUMNS = list(REQUIRED_OBSERVATION_COLUMNS)
 VALID_OUTPUT_TYPES = {1, 2, 3, 4}
 VALID_VINTAGE_MODES = {"current", "initial_release", "realtime_period"}
+FRED_INITIAL_RELEASE_REALTIME_START = "1776-07-04"
+FRED_INITIAL_RELEASE_REALTIME_END = "9999-12-31"
 
 
 class FredApiError(RuntimeError):
@@ -119,14 +121,19 @@ class FredClient:
     ) -> pd.DataFrame:
         """Fetch and normalize observations for one FRED/ALFRED series."""
         request_output_type = _resolve_output_type(output_type, vintage_mode)
+        request_realtime_start, request_realtime_end = _resolve_realtime_window(
+            realtime_start=realtime_start,
+            realtime_end=realtime_end,
+            vintage_mode=vintage_mode,
+        )
         payload = self._request_json(
             "series/observations",
             {
                 "series_id": series_id,
                 "observation_start": observation_start,
                 "observation_end": observation_end,
-                "realtime_start": realtime_start,
-                "realtime_end": realtime_end,
+                "realtime_start": request_realtime_start,
+                "realtime_end": request_realtime_end,
                 "frequency": frequency,
                 "aggregation_method": aggregation_method,
                 "output_type": request_output_type,
@@ -145,7 +152,7 @@ class FredClient:
         release_dates = _extract_release_dates(
             frame=frame,
             payload=payload,
-            realtime_start=realtime_start,
+            realtime_start=request_realtime_start,
             vintage_mode=vintage_mode,
         )
 
@@ -233,6 +240,23 @@ def _resolve_output_type(output_type: int | None, vintage_mode: str) -> int | No
     if vintage_mode == "realtime_period":
         return 1
     return None
+
+
+def _resolve_realtime_window(
+    realtime_start: str | None,
+    realtime_end: str | None,
+    vintage_mode: str,
+) -> tuple[str | None, str | None]:
+    if vintage_mode != "initial_release":
+        return realtime_start, realtime_end
+
+    # FRED otherwise defaults realtime_start/realtime_end to today's date.
+    # For output_type=4 this can restrict initial-release observations to a
+    # one-day current vintage window and omit historical releases.
+    return (
+        realtime_start or FRED_INITIAL_RELEASE_REALTIME_START,
+        realtime_end or FRED_INITIAL_RELEASE_REALTIME_END,
+    )
 
 
 def _extract_release_dates(

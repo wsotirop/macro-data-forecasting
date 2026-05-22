@@ -78,7 +78,7 @@ Every stored observation distinguishes:
 For FRED/ALFRED, the observations endpoint provides realtime vintage metadata. The CLI supports three FRED vintage modes:
 
 - `current`: the default compatibility mode. It fetches the current vintage snapshot. This can make all historical observations appear available on the same current vintage date, so it is not suitable for strict historical point-in-time feature construction.
-- `initial_release`: uses FRED `output_type=4` and maps each observation's `realtime_start` to `release_date`. This is recommended for strict historical point-in-time macro features when FRED provides the required metadata.
+- `initial_release`: uses FRED `output_type=4` and maps each observation's `realtime_start` to `release_date`. FRED defaults `realtime_start` and `realtime_end` to today's date when they are omitted, so this mode uses the full real-time window `1776-07-04` to `9999-12-31` by default. This is recommended for strict historical point-in-time macro features when FRED provides the required metadata.
 - `realtime_period`: uses FRED `output_type=1` with user-provided realtime bounds for explicit realtime-period requests.
 
 FRED `release_date` is still vintage metadata, not a complete official release calendar for every series. The project no longer treats a current-vintage snapshot as historical release timing unless current mode is explicitly used.
@@ -206,6 +206,12 @@ Fetch and store FRED initial-release observations for point-in-time features:
 
 ```powershell
 uv run python -m macro_data_forecasting.cli fetch-fred --series-id UNRATE --start 2010-01-01 --vintage-mode initial_release
+```
+
+You can override the initial-release real-time window when needed:
+
+```powershell
+uv run python -m macro_data_forecasting.cli fetch-fred --series-id UNRATE --start 2010-01-01 --vintage-mode initial_release --realtime-start 2018-01-01 --realtime-end 2020-01-01
 ```
 
 Fetch a FRED realtime period explicitly:

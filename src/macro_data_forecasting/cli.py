@@ -47,7 +47,11 @@ from macro_data_forecasting.sources.bls_release_calendar import (
     map_cpi_release_dates,
     normalize_reference_period,
 )
-from macro_data_forecasting.sources.fred import FredClient
+from macro_data_forecasting.sources.fred import (
+    FRED_INITIAL_RELEASE_REALTIME_END,
+    FRED_INITIAL_RELEASE_REALTIME_START,
+    FredClient,
+)
 from macro_data_forecasting.sources.ingestion import run_ingestion
 
 
@@ -193,12 +197,19 @@ def main(argv: Sequence[str] | None = None) -> int:
             fred_output_type = 4
         if fred_output_type is None and args.vintage_mode == "realtime_period":
             fred_output_type = 1
+        fred_realtime_start = args.realtime_start
+        fred_realtime_end = args.realtime_end
+        if args.vintage_mode == "initial_release":
+            fred_realtime_start = (
+                fred_realtime_start or FRED_INITIAL_RELEASE_REALTIME_START
+            )
+            fred_realtime_end = fred_realtime_end or FRED_INITIAL_RELEASE_REALTIME_END
         parameters = {
             "series_id": args.series_id,
             "observation_start": args.observation_start,
             "observation_end": args.observation_end,
-            "realtime_start": args.realtime_start,
-            "realtime_end": args.realtime_end,
+            "realtime_start": fred_realtime_start,
+            "realtime_end": fred_realtime_end,
             "frequency": args.frequency,
             "aggregation_method": args.aggregation_method,
             "output_type": fred_output_type,
@@ -213,7 +224,14 @@ def main(argv: Sequence[str] | None = None) -> int:
                 stacklevel=2,
             )
         if args.vintage_mode == "initial_release":
-            print("Using FRED initial-release mode.")
+            if args.realtime_start is None and args.realtime_end is None:
+                window_label = "full real-time window"
+            else:
+                window_label = "real-time window"
+            print(
+                f"Using FRED initial-release mode with {window_label} "
+                f"{fred_realtime_start} to {fred_realtime_end}.",
+            )
         result = run_ingestion(
             source="fred",
             series_id=args.series_id,

@@ -10,7 +10,7 @@ import requests
 from macro_data_forecasting.config import get_settings
 from macro_data_forecasting.database import (
     REQUIRED_OBSERVATION_COLUMNS,
-    insert_observations,
+    upsert_observations,
 )
 
 BLS_API_BASE_URL = "https://api.bls.gov/publicAPI/v2/timeseries/data/"
@@ -217,7 +217,11 @@ class BlsClient:
             raise ValueError(msg)
         return validated
 
-    def store(self, data: pd.DataFrame, database_url: str | None = None) -> int:
-        """Store validated BLS observations and return the inserted row count."""
+    def store(
+        self,
+        data: pd.DataFrame,
+        database_url: str | None = None,
+    ) -> dict[str, int]:
+        """Store validated BLS observations with idempotent upsert counts."""
         validated = self.validate(data)
-        return insert_observations(validated, database_url=database_url)
+        return upsert_observations(validated, database_url=database_url)

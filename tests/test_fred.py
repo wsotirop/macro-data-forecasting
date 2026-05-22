@@ -161,4 +161,31 @@ def test_fred_fetch_store_workflow_with_mocked_response(
     observations = client.fetch_series_observations(series_id="CPIAUCSL")
     inserted = client.store(observations, database_url=database_url)
 
-    assert inserted == 2
+    assert inserted == {"rows_seen": 2, "inserted": 2, "updated": 0, "skipped": 0}
+
+
+def test_repeated_fred_store_does_not_duplicate_rows(
+    fred_payload: dict[str, Any],
+    tmp_path,
+) -> None:
+    """Verify repeated FRED stores upsert instead of duplicating rows."""
+    database_url = f"sqlite:///{(tmp_path / 'macro.sqlite').as_posix()}"
+    client = FredClient(
+        api_key="test-key",
+        session=FakeSession(fred_payload),
+        backoff_seconds=0,
+    )
+    observations = client.fetch_series_observations(series_id="CPIAUCSL")
+
+    client.store(observations, database_url=database_url)
+    counts = client.store(observations, database_url=database_url)
+
+    engine = get_engine(database_url)
+    with engine.connect() as connection:
+        stored_count = connection.scalar(
+            select(func.count()).select_from(macro_observations),
+        )
+    engine.dispose()
+
+    assert counts == {"rows_seen": 2, "inserted": 0, "updated": 0, "skipped": 2}
+    assert stored_count == 2

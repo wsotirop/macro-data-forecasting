@@ -202,3 +202,30 @@ def test_bls_observations_insert_into_sqlite(
 
     assert row_count == 2
     assert stored_count == 2
+
+
+def test_repeated_bls_store_does_not_duplicate_rows(
+    bls_payload: dict[str, Any],
+    tmp_path,
+) -> None:
+    """Verify repeated BLS stores upsert instead of duplicating rows."""
+    database_url = f"sqlite:///{(tmp_path / 'macro.sqlite').as_posix()}"
+    client = BlsClient(session=FakeBlsSession(bls_payload), backoff_seconds=0)
+    observations = client.fetch_series_observations("CUSR0000SA0", 2026, 2026)
+    calendar = load_cpi_release_calendar(
+        "data/reference/cpi_release_calendar_sample.csv",
+    )
+    mapped = map_cpi_release_dates(observations, calendar)
+
+    client.store(mapped, database_url=database_url)
+    counts = client.store(mapped, database_url=database_url)
+
+    engine = get_engine(database_url)
+    with engine.connect() as connection:
+        stored_count = connection.scalar(
+            select(func.count()).select_from(macro_observations),
+        )
+    engine.dispose()
+
+    assert counts == {"rows_seen": 2, "inserted": 0, "updated": 0, "skipped": 2}
+    assert stored_count == 2

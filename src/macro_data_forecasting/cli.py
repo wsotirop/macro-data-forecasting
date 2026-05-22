@@ -15,6 +15,7 @@ from macro_data_forecasting.sources.bls_release_calendar import (
     normalize_reference_period,
 )
 from macro_data_forecasting.sources.fred import FredClient
+from macro_data_forecasting.sources.ingestion import run_ingestion
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -37,6 +38,7 @@ def _build_parser() -> argparse.ArgumentParser:
     fetch_bls.add_argument("--end-year", type=int, required=True)
     fetch_bls.add_argument("--annual-average", action="store_true")
     fetch_bls.add_argument("--release-calendar", type=Path)
+    fetch_bls.add_argument("--strict-calendar", action="store_true")
     fetch_bls.add_argument("--database-url")
 
     validate_cpi_calendar = subparsers.add_parser(
@@ -57,40 +59,78 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command == "fetch-fred":
         client = FredClient()
-        observations = client.fetch_series_observations(
+        parameters = {
+            "series_id": args.series_id,
+            "observation_start": args.observation_start,
+            "observation_end": args.observation_end,
+            "realtime_start": args.realtime_start,
+            "realtime_end": args.realtime_end,
+            "frequency": args.frequency,
+            "aggregation_method": args.aggregation_method,
+        }
+        result = run_ingestion(
+            source="fred",
             series_id=args.series_id,
-            observation_start=args.observation_start,
-            observation_end=args.observation_end,
-            realtime_start=args.realtime_start,
-            realtime_end=args.realtime_end,
-            frequency=args.frequency,
-            aggregation_method=args.aggregation_method,
+            fetch_fn=lambda: client.fetch_series_observations(**parameters),
+            validate_fn=client.validate,
+            store_fn=lambda data: client.store(data, database_url=args.database_url),
+            parameters=parameters,
+            database_url=args.database_url,
         )
-        row_count = client.store(observations, database_url=args.database_url)
-        print(f"Inserted {row_count} rows for {args.series_id}.")
+        _print_ingestion_result(result, args.series_id)
         return 0
 
     if args.command == "fetch-bls":
         client = BlsClient()
-        observations = client.fetch_series_observations(
-            series_id=args.series_id,
-            start_year=args.start_year,
-            end_year=args.end_year,
-            annual_average=args.annual_average,
-        )
-        if args.release_calendar is not None:
-            calendar = load_cpi_release_calendar(args.release_calendar)
-            observations = map_cpi_release_dates(observations, calendar)
-        else:
-            warnings.warn(
-                "No CPI release calendar provided; BLS release_date values will "
-                "remain missing. Provide --release-calendar for point-in-time CPI "
-                "storage.",
-                RuntimeWarning,
-                stacklevel=2,
+        parameters = {
+            "series_id": args.series_id,
+            "start_year": args.start_year,
+            "end_year": args.end_year,
+            "annual_average": args.annual_average,
+            "release_calendar": str(args.release_calendar)
+            if args.release_calendar is not None
+            else None,
+            "strict_calendar": args.strict_calendar,
+        }
+
+        def fetch_bls_observations() -> pd.DataFrame:
+            observations = client.fetch_series_observations(
+                series_id=args.series_id,
+                start_year=args.start_year,
+                end_year=args.end_year,
+                annual_average=args.annual_average,
             )
-        row_count = client.store(observations, database_url=args.database_url)
-        print(f"Inserted {row_count} rows for {args.series_id}.")
+            if args.strict_calendar and args.release_calendar is None:
+                msg = "--strict-calendar requires --release-calendar."
+                raise ValueError(msg)
+            if args.release_calendar is not None:
+                calendar = load_cpi_release_calendar(args.release_calendar)
+                assert_calendar_coverage(
+                    observations,
+                    calendar,
+                    strict=args.strict_calendar,
+                )
+                observations = map_cpi_release_dates(observations, calendar)
+            else:
+                warnings.warn(
+                    "No CPI release calendar provided; BLS release_date values "
+                    "will remain missing and will use the database missing-date "
+                    "idempotency key.",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
+            return observations
+
+        result = run_ingestion(
+            source="bls",
+            series_id=args.series_id,
+            fetch_fn=fetch_bls_observations,
+            validate_fn=client.validate,
+            store_fn=lambda data: client.store(data, database_url=args.database_url),
+            parameters=parameters,
+            database_url=args.database_url,
+        )
+        _print_ingestion_result(result, args.series_id)
         return 0
 
     if args.command == "validate-cpi-calendar":
@@ -127,6 +167,14 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     parser.error(f"Unsupported command: {args.command}")
     return 2
+
+
+def _print_ingestion_result(result: dict[str, int], series_id: str) -> None:
+    print(f"Ingestion run {result['run_id']} for {series_id}: {result['status']}")
+    print(f"Rows seen: {result['rows_seen']}")
+    print(f"Inserted: {result['inserted']}")
+    print(f"Updated: {result['updated']}")
+    print(f"Skipped: {result['skipped']}")
 
 
 if __name__ == "__main__":

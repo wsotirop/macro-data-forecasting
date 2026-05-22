@@ -166,7 +166,6 @@ def map_cpi_release_dates(
     if "date" not in observations.columns or "release_date" not in observations.columns:
         msg = "Observations must include date and release_date columns."
         raise ValueError(msg)
-    assert_calendar_coverage(observations, validated_calendar, strict=True)
 
     mapped = observations.copy()
     mapped["release_date"] = mapped["release_date"].astype(object)

@@ -23,6 +23,7 @@ Macroeconomic forecasting workflows are easy to contaminate with data that was r
 - Stage 2A: FRED/ALFRED ingestion
 - Stage 2B: BLS CPI/Core CPI ingestion
 - Stage 2C: CPI release calendar validation
+- Stage 2D: Idempotent ingestion and run metadata
 - Stage 3: Point-in-time feature engineering
 - Stage 4: Modeling and walk-forward validation
 - Stage 5: Automated reporting
@@ -34,6 +35,8 @@ Stage 2A adds the first real ingestion path for FRED/ALFRED series. The current 
 Stage 2B adds BLS CPI/Core CPI ingestion for monthly CPI series and a separate CPI release-calendar mapping utility. BLS observations can be fetched without an API key, but exact `release_date` values require a local official release calendar CSV.
 
 Stage 2C adds CPI release-calendar validation and coverage checks. Calendars are checked for schema, duplicate reference months, valid release dates, valid release times, and complete coverage over requested CPI observation periods.
+
+Stage 2D adds idempotent upsert behavior and ingestion-run metadata. Re-running the same ingestion is safe: existing observations are matched by `series_id`, `source`, `date`, and `release_date`, then inserted, updated, or skipped without creating duplicate point-in-time rows.
 
 No Treasury, market-data, feature-engineering, or modeling logic is implemented yet.
 
@@ -50,6 +53,10 @@ For FRED/ALFRED, the observations endpoint provides realtime vintage metadata. U
 For BLS CPI data, `date` is the CPI reference month derived from BLS `year` and `period` fields. The BLS Public Data API does not guarantee exact release dates for every observation in the observation payload, so CPI `release_date` should be mapped from an official CPI release calendar. If no release calendar is supplied, BLS rows may keep `release_date` missing rather than silently approximating it.
 
 Feature engineering and backtesting should require complete CPI release-calendar coverage before using CPI observations. Missing `release_date` values are not acceptable for strict point-in-time CPI work.
+
+For rows where `release_date` is intentionally missing, such as unmapped BLS observations, the database stores a deterministic internal missing-date key so repeated ingestion still remains idempotent. This is only a storage safety mechanism; it is not a release-date approximation.
+
+Each CLI ingestion command records an `ingestion_runs` row with source, series, parameters, status, timestamps, row counts, and any error message. Failed ingestion runs are recorded and the exception is still surfaced.
 
 ## First Target
 
@@ -107,11 +114,19 @@ Fetch BLS CPI and map release dates from a local calendar:
 uv run python -m macro_data_forecasting.cli fetch-bls --series-id CUSR0000SA0 --start-year 2026 --end-year 2026 --release-calendar data/reference/cpi_release_calendar_sample.csv
 ```
 
+Require complete CPI calendar coverage before storing:
+
+```powershell
+uv run python -m macro_data_forecasting.cli fetch-bls --series-id CUSR0000SA0 --start-year 2026 --end-year 2026 --release-calendar data/reference/cpi_release_calendar_sample.csv --strict-calendar
+```
+
 Validate a CPI release calendar:
 
 ```powershell
 uv run python -m macro_data_forecasting.cli validate-cpi-calendar --calendar data/reference/cpi_release_calendar_sample.csv --start-period 2026-04 --end-period 2026-04
 ```
+
+Running the same fetch command repeatedly should not create duplicate observations. The CLI reports rows seen, inserted, updated, skipped, and ingestion run status.
 
 The included `data/reference/cpi_release_calendar_sample.csv` is only for tests and examples. It is not a complete historical CPI release calendar and should not be used as the production source for point-in-time CPI backtests.
 

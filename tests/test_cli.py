@@ -255,6 +255,22 @@ def _seed_cpi_observations(
     )
 
 
+def _seed_feature_observations(database_url: str) -> None:
+    upsert_observations(
+        pd.DataFrame(
+            {
+                "series_id": ["UNRATE", "UNRATE", "FEDFUNDS"],
+                "date": ["2026-01-01", "2026-02-01", "2026-03-01"],
+                "value": [4.0, 4.1, 4.5],
+                "source": ["fred", "fred", "fred"],
+                "release_date": ["2026-02-06", "2026-03-06", "2026-04-30"],
+                "fetched_at": ["2026-05-21T21:00:00Z"] * 3,
+            },
+        ),
+        database_url=database_url,
+    )
+
+
 def test_cli_build_cpi_target_prints_shell(tmp_path, capsys) -> None:
     """Verify build-cpi-target builds a shell from stored observations."""
     database_url = f"sqlite:///{(tmp_path / 'macro.sqlite').as_posix()}"
@@ -346,3 +362,81 @@ def test_cli_build_cpi_target_writes_output_csv(tmp_path) -> None:
         "target_release_date",
         "target_value",
     ]
+
+
+def test_cli_build_feature_matrix_prints_preview(tmp_path, capsys) -> None:
+    """Verify build-feature-matrix builds point-in-time feature columns."""
+    database_url = f"sqlite:///{(tmp_path / 'macro.sqlite').as_posix()}"
+    _seed_cpi_observations(database_url)
+    _seed_feature_observations(database_url)
+
+    result = cli.main(
+        [
+            "build-feature-matrix",
+            "--target-series-id",
+            "CUSR0000SA0",
+            "--features",
+            "UNRATE",
+            "FEDFUNDS",
+            "--database-url",
+            database_url,
+        ],
+    )
+
+    output = capsys.readouterr().out
+    assert result == 0
+    assert "feature_UNRATE_latest" in output
+    assert "feature_FEDFUNDS_latest" in output
+    assert "Shape: (2, 7)" in output
+
+
+def test_cli_build_feature_matrix_adds_lagged_target(tmp_path, capsys) -> None:
+    """Verify build-feature-matrix can include lagged target features."""
+    database_url = f"sqlite:///{(tmp_path / 'macro.sqlite').as_posix()}"
+    _seed_cpi_observations(database_url)
+    _seed_feature_observations(database_url)
+
+    result = cli.main(
+        [
+            "build-feature-matrix",
+            "--target-series-id",
+            "CUSR0000SA0",
+            "--features",
+            "UNRATE",
+            "--include-lagged-target",
+            "--database-url",
+            database_url,
+        ],
+    )
+
+    output = capsys.readouterr().out
+    assert result == 0
+    assert "feature_target_lag_1" in output
+
+
+def test_cli_build_feature_matrix_writes_output_csv(tmp_path) -> None:
+    """Verify build-feature-matrix writes CSV output when requested."""
+    database_url = f"sqlite:///{(tmp_path / 'macro.sqlite').as_posix()}"
+    output_path = tmp_path / "cpi_feature_matrix.csv"
+    _seed_cpi_observations(database_url)
+    _seed_feature_observations(database_url)
+
+    result = cli.main(
+        [
+            "build-feature-matrix",
+            "--target-series-id",
+            "CUSR0000SA0",
+            "--features",
+            "UNRATE",
+            "--output",
+            str(output_path),
+            "--database-url",
+            database_url,
+        ],
+    )
+
+    written = pd.read_csv(output_path)
+    assert result == 0
+    assert output_path.exists()
+    assert "feature_UNRATE_latest" in written.columns
+    assert len(written) == 2

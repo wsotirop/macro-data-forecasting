@@ -26,6 +26,7 @@ Macroeconomic forecasting workflows are easy to contaminate with data that was r
 - Stage 2D: Idempotent ingestion and run metadata
 - Stage 2E: Ingestion audit and coverage CLI
 - Stage 3A: CPI target construction and dataset contract
+- Stage 3B: Point-in-time feature matrix construction
 - Stage 3: Point-in-time feature engineering
 - Stage 4: Modeling and walk-forward validation
 - Stage 5: Automated reporting
@@ -44,7 +45,9 @@ Stage 2E adds audit commands for inspecting ingestion history and stored observa
 
 Stage 3A adds the first target-construction contract: U.S. headline CPI month-over-month inflation. It builds a target shell from normalized CPI observations, validates target release dates, and creates an empty model-dataset shell.
 
-No Treasury, market-data, full feature-engineering, or modeling logic is implemented yet.
+Stage 3B adds the first simple point-in-time feature matrix. Feature values are selected using `release_date <= forecast_timestamp`, never by reference date alone.
+
+No Treasury, market-data, modeling, or full feature-engineering logic is implemented yet.
 
 ## Point-In-Time Columns
 
@@ -85,6 +88,18 @@ Stage 3A only creates the dataset shell:
 - `target_value`
 
 For now, `forecast_timestamp` is set to `target_release_date`. Real point-in-time feature joins are not implemented yet and will come in a later stage.
+
+## Point-In-Time Features
+
+The first feature matrix is intentionally simple. For each target row and requested feature series, the builder selects the latest observation whose `release_date` is less than or equal to the target `forecast_timestamp`. If an observation has a reference date before the target but was released after the forecast timestamp, it is excluded.
+
+Feature columns are named:
+
+```text
+feature_{series_id}_latest
+```
+
+Optional lagged target features can be added as `feature_target_lag_1`, etc. These lags are computed from prior target rows only and do not use the current target value.
 
 ## First Target
 
@@ -178,6 +193,12 @@ Build the CPI target dataset shell:
 
 ```powershell
 uv run python -m macro_data_forecasting.cli build-cpi-target --series-id CUSR0000SA0 --output data/processed/cpi_target_shell.csv
+```
+
+Build a simple point-in-time feature matrix:
+
+```powershell
+uv run python -m macro_data_forecasting.cli build-feature-matrix --target-series-id CUSR0000SA0 --features UNRATE FEDFUNDS DGS2 DGS10 T10Y2Y --output data/processed/cpi_feature_matrix.csv
 ```
 
 The included `data/reference/cpi_release_calendar_sample.csv` is only for tests and examples. It is not a complete historical CPI release calendar and should not be used as the production source for point-in-time CPI backtests.

@@ -18,6 +18,10 @@ from macro_data_forecasting.features.dataset_contract import (
     create_empty_feature_dataset,
     validate_target_frame,
 )
+from macro_data_forecasting.features.feature_matrix import (
+    add_lagged_target_features,
+    build_point_in_time_feature_matrix,
+)
 from macro_data_forecasting.features.targets import build_cpi_mom_target
 from macro_data_forecasting.sources.bls import BlsClient
 from macro_data_forecasting.sources.bls_release_calendar import (
@@ -88,6 +92,21 @@ def _build_parser() -> argparse.ArgumentParser:
     build_cpi_target.add_argument("--output", type=Path)
     build_cpi_target.add_argument("--allow-missing-release-dates", action="store_true")
     build_cpi_target.add_argument("--database-url")
+
+    build_feature_matrix = subparsers.add_parser(
+        "build-feature-matrix",
+        help="Build a point-in-time CPI feature matrix",
+    )
+    build_feature_matrix.add_argument("--target-series-id", default="CUSR0000SA0")
+    build_feature_matrix.add_argument("--target-source", default="bls")
+    build_feature_matrix.add_argument("--features", nargs="+")
+    build_feature_matrix.add_argument("--output", type=Path)
+    build_feature_matrix.add_argument("--include-lagged-target", action="store_true")
+    build_feature_matrix.add_argument(
+        "--allow-missing-release-dates",
+        action="store_true",
+    )
+    build_feature_matrix.add_argument("--database-url")
 
     return parser
 
@@ -269,6 +288,34 @@ def main(argv: Sequence[str] | None = None) -> int:
         else:
             _print_dataframe(dataset.head(10), "No CPI target rows built.")
             print(f"Rows: {len(dataset)}")
+        return 0
+
+    if args.command == "build-feature-matrix":
+        observations = load_observations(database_url=args.database_url)
+        targets = build_cpi_mom_target(
+            observations,
+            series_id=args.target_series_id,
+            source=args.target_source,
+            strict_release_dates=not args.allow_missing_release_dates,
+        )
+        validated_targets = validate_target_frame(targets)
+        target_shell = create_empty_feature_dataset(validated_targets)
+        feature_matrix = build_point_in_time_feature_matrix(
+            target_shell,
+            observations,
+            feature_series=args.features,
+            strict_release_dates=not args.allow_missing_release_dates,
+        )
+        if args.include_lagged_target:
+            feature_matrix = add_lagged_target_features(feature_matrix)
+
+        if args.output is not None:
+            args.output.parent.mkdir(parents=True, exist_ok=True)
+            feature_matrix.to_csv(args.output, index=False)
+            print(f"Wrote {len(feature_matrix)} rows to {args.output}")
+        else:
+            _print_dataframe(feature_matrix.head(10), "No feature matrix rows built.")
+            print(f"Shape: {feature_matrix.shape}")
         return 0
 
     parser.error(f"Unsupported command: {args.command}")

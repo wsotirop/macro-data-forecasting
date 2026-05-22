@@ -27,6 +27,10 @@ from macro_data_forecasting.features.feature_matrix import (
     build_point_in_time_feature_matrix,
 )
 from macro_data_forecasting.features.targets import build_cpi_mom_target
+from macro_data_forecasting.models.comparison import (
+    run_model_comparison,
+    save_model_comparison_outputs,
+)
 from macro_data_forecasting.models.validation import walk_forward_validate
 from macro_data_forecasting.sources.bls import BlsClient
 from macro_data_forecasting.sources.bls_release_calendar import (
@@ -125,6 +129,20 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     validate_model.add_argument("--min-train-size", type=int, default=24)
     validate_model.add_argument("--output", type=Path)
+
+    compare_models = subparsers.add_parser(
+        "compare-models",
+        help="Run multiple walk-forward models on one feature matrix",
+    )
+    compare_models.add_argument("--dataset", type=Path, required=True)
+    compare_models.add_argument(
+        "--models",
+        nargs="+",
+        default=["naive_last_value", "ridge"],
+    )
+    compare_models.add_argument("--min-train-size", type=int, default=24)
+    compare_models.add_argument("--output-dir", type=Path)
+    compare_models.add_argument("--prefix", default="model_comparison")
 
     return parser
 
@@ -371,6 +389,27 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"Wrote {len(forecasts)} forecasts to {args.output}")
         return 0
 
+    if args.command == "compare-models":
+        dataset = pd.read_csv(args.dataset)
+        forecasts, metrics = run_model_comparison(
+            dataset,
+            models=args.models,
+            min_train_size=args.min_train_size,
+        )
+        _print_dataframe(metrics, "No model metrics produced.")
+        _print_ridge_naive_comparison(metrics)
+
+        if args.output_dir is not None:
+            paths = save_model_comparison_outputs(
+                forecasts,
+                metrics,
+                output_dir=args.output_dir,
+                prefix=args.prefix,
+            )
+            print(f"Wrote forecasts to {paths['forecasts']}")
+            print(f"Wrote metrics to {paths['metrics']}")
+        return 0
+
     parser.error(f"Unsupported command: {args.command}")
     return 2
 
@@ -390,6 +429,21 @@ def _print_mapping(values: dict[str, object]) -> None:
 def _print_metrics(metrics: dict[str, float]) -> None:
     for key, value in metrics.items():
         print(f"{key}: {value}")
+
+
+def _print_ridge_naive_comparison(metrics: pd.DataFrame) -> None:
+    ridge_rows = metrics.loc[metrics["model_name"] == "ridge"]
+    if ridge_rows.empty:
+        return
+    ridge = ridge_rows.iloc[0]
+    if ridge["beats_naive_rmse"] == 1.0:
+        print("ridge beats naive on RMSE.")
+    else:
+        print("ridge does not beat naive on RMSE.")
+    if ridge["beats_naive_mae"] == 1.0:
+        print("ridge beats naive on MAE.")
+    else:
+        print("ridge does not beat naive on MAE.")
 
 
 def _create_relaxed_feature_dataset(targets: pd.DataFrame) -> pd.DataFrame:

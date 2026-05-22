@@ -534,3 +534,62 @@ def test_cli_validate_model_ridge_reports_naive_comparison(tmp_path, capsys) -> 
     assert result == 0
     assert "Naive comparison:" in output
     assert "model_beats_naive_rmse" in output
+
+
+def test_cli_compare_models_prints_metrics_table(tmp_path, capsys) -> None:
+    """Verify compare-models prints comparison metrics for requested models."""
+    dataset_path = tmp_path / "feature_matrix.csv"
+    _validation_dataset().to_csv(dataset_path, index=False)
+
+    result = cli.main(
+        [
+            "compare-models",
+            "--dataset",
+            str(dataset_path),
+            "--models",
+            "naive_last_value",
+            "ridge",
+            "--min-train-size",
+            "3",
+        ],
+    )
+
+    output = capsys.readouterr().out
+    assert result == 0
+    assert "model_name" in output
+    assert "naive_last_value" in output
+    assert "ridge" in output
+    assert "rmse_vs_naive" in output
+    assert "naive on RMSE" in output
+
+
+def test_cli_compare_models_writes_outputs(tmp_path) -> None:
+    """Verify compare-models writes forecast and metrics CSV outputs."""
+    dataset_path = tmp_path / "feature_matrix.csv"
+    output_dir = tmp_path / "reports"
+    _validation_dataset().to_csv(dataset_path, index=False)
+
+    result = cli.main(
+        [
+            "compare-models",
+            "--dataset",
+            str(dataset_path),
+            "--models",
+            "naive_last_value",
+            "ridge",
+            "--min-train-size",
+            "3",
+            "--output-dir",
+            str(output_dir),
+            "--prefix",
+            "cpi",
+        ],
+    )
+
+    forecasts = output_dir / "cpi_forecasts.csv"
+    metrics = output_dir / "cpi_metrics.csv"
+    assert result == 0
+    assert forecasts.exists()
+    assert metrics.exists()
+    assert "prediction" in pd.read_csv(forecasts).columns
+    assert "rmse_vs_naive" in pd.read_csv(metrics).columns

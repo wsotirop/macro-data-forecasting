@@ -28,6 +28,7 @@ Macroeconomic forecasting workflows are easy to contaminate with data that was r
 - Stage 3A: CPI target construction and dataset contract
 - Stage 3B: Point-in-time feature matrix construction
 - Stage 4A: Walk-forward validation with naive and ridge baselines
+- Stage 4B: Model comparison runner and metrics table
 - Stage 3: Point-in-time feature engineering
 - Stage 4: Modeling and walk-forward validation
 - Stage 5: Automated reporting
@@ -49,6 +50,8 @@ Stage 3A adds the first target-construction contract: U.S. headline CPI month-ov
 Stage 3B adds the first simple point-in-time feature matrix. Feature values are selected using `release_date <= forecast_timestamp`, never by reference date alone.
 
 Stage 4A adds walk-forward validation plus naive last-value and ridge regression baselines.
+
+Stage 4B adds a model comparison runner that evaluates multiple existing baselines on the same feature matrix, saves forecast-level outputs, and produces a metrics table benchmarked against naive.
 
 No Treasury, market-data, LightGBM, or full reporting logic is implemented yet.
 
@@ -114,6 +117,14 @@ For each forecast row, the validator trains only on rows strictly before that ro
 - `ridge`: fits a scikit-learn pipeline with median imputation, standard scaling, and ridge regression.
 
 If ridge does not beat the naive baseline, the CLI reports that plainly.
+
+## Model Comparison
+
+The comparison runner executes requested models through the same walk-forward validator and summarizes each model in a metrics table. `naive_last_value` is always used as the benchmark, even when it is not included in the requested output models.
+
+Metrics include RMSE, MAE, directional accuracy, forecast count, RMSE/MAE improvement versus naive, and numeric flags for whether a model beats naive. Forecast comparisons are aligned by forecast timestamp, target id, and target reference date before benchmark metrics are computed.
+
+LightGBM is not implemented yet. It is expected to plug into this comparison framework in a later stage.
 
 ## First Target
 
@@ -219,6 +230,12 @@ Run walk-forward validation:
 
 ```powershell
 uv run python -m macro_data_forecasting.cli validate-model --dataset data/processed/cpi_feature_matrix.csv --model ridge --output reports/ridge_forecasts.csv
+```
+
+Compare baseline models:
+
+```powershell
+uv run python -m macro_data_forecasting.cli compare-models --dataset data/processed/cpi_feature_matrix.csv --models naive_last_value ridge --output-dir reports
 ```
 
 The included `data/reference/cpi_release_calendar_sample.csv` is only for tests and examples. It is not a complete historical CPI release calendar and should not be used as the production source for point-in-time CPI backtests.

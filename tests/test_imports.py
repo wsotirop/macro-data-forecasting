@@ -13,6 +13,7 @@ def test_main_modules_import() -> None:
     import macro_data_forecasting.features.transforms  # noqa: F401
     import macro_data_forecasting.logging_config  # noqa: F401
     import macro_data_forecasting.models.baselines  # noqa: F401
+    import macro_data_forecasting.models.comparison  # noqa: F401
     import macro_data_forecasting.models.results  # noqa: F401
     import macro_data_forecasting.models.validation  # noqa: F401
     import macro_data_forecasting.reports.generate_report  # noqa: F401

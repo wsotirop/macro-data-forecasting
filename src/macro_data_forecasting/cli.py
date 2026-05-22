@@ -68,6 +68,8 @@ def _build_parser() -> argparse.ArgumentParser:
     fetch_fred.add_argument("--frequency")
     fetch_fred.add_argument("--aggregation-method")
     fetch_fred.add_argument("--output-type", type=int)
+    fetch_fred.add_argument("--chunk-realtime", action="store_true")
+    fetch_fred.add_argument("--realtime-chunk-years", type=int, default=5)
     fetch_fred.add_argument(
         "--vintage-mode",
         choices=["current", "initial_release", "realtime_period"],
@@ -204,6 +206,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                 fred_realtime_start or FRED_INITIAL_RELEASE_REALTIME_START
             )
             fred_realtime_end = fred_realtime_end or FRED_INITIAL_RELEASE_REALTIME_END
+            if args.chunk_realtime:
+                if args.realtime_start is None and args.observation_start is not None:
+                    fred_realtime_start = args.observation_start
+                today = pd.Timestamp.now(tz="UTC").date()
+                if pd.Timestamp(fred_realtime_end).date() > today:
+                    fred_realtime_end = today.isoformat()
         parameters = {
             "series_id": args.series_id,
             "observation_start": args.observation_start,
@@ -214,6 +222,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             "aggregation_method": args.aggregation_method,
             "output_type": fred_output_type,
             "vintage_mode": args.vintage_mode,
+            "chunk_realtime": args.chunk_realtime,
+            "realtime_chunk_years": args.realtime_chunk_years,
         }
         if args.vintage_mode == "current":
             warnings.warn(
@@ -224,13 +234,20 @@ def main(argv: Sequence[str] | None = None) -> int:
                 stacklevel=2,
             )
         if args.vintage_mode == "initial_release":
-            if args.realtime_start is None and args.realtime_end is None:
+            if args.chunk_realtime:
+                window_label = "chunked real-time window"
+            elif args.realtime_start is None and args.realtime_end is None:
                 window_label = "full real-time window"
             else:
                 window_label = "real-time window"
             print(
                 f"Using FRED initial-release mode with {window_label} "
                 f"{fred_realtime_start} to {fred_realtime_end}.",
+            )
+        if args.chunk_realtime:
+            print(
+                "Chunking FRED real-time window into "
+                f"{args.realtime_chunk_years}-year chunks.",
             )
         result = run_ingestion(
             source="fred",

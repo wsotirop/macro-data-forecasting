@@ -53,6 +53,25 @@ class FakeSession:
         return FakeResponse(self.payload)
 
 
+class SequenceSession:
+    """Requests.Session test double returning one response per GET."""
+
+    def __init__(self, responses: list[FakeResponse]) -> None:
+        """Store ordered fake responses."""
+        self.responses = responses
+        self.calls: list[dict[str, Any]] = []
+
+    def get(
+        self,
+        url: str,
+        params: dict[str, Any],
+        timeout: float,
+    ) -> FakeResponse:
+        """Record request arguments and return the next fake response."""
+        self.calls.append({"url": url, "params": params, "timeout": timeout})
+        return self.responses.pop(0)
+
+
 @pytest.fixture
 def fred_payload() -> dict[str, Any]:
     """Return a representative FRED observations API payload."""
@@ -218,6 +237,151 @@ def test_fred_realtime_period_mode_sends_output_type_1(
     assert params["output_type"] == 1
     assert params["realtime_start"] == "2018-01-01"
     assert params["realtime_end"] == "2020-01-01"
+
+
+def test_fred_chunked_initial_release_calls_api_multiple_times() -> None:
+    """Verify chunked initial-release requests split the real-time window."""
+    session = SequenceSession(
+        [
+            FakeResponse(
+                {
+                    "observations": [
+                        {
+                            "realtime_start": "2020-02-01",
+                            "realtime_end": "2020-02-01",
+                            "date": "2020-01-01",
+                            "value": "3.5",
+                        },
+                    ],
+                },
+            ),
+            FakeResponse(
+                {
+                    "observations": [
+                        {
+                            "realtime_start": "2022-02-01",
+                            "realtime_end": "2022-02-01",
+                            "date": "2022-01-01",
+                            "value": "4.0",
+                        },
+                    ],
+                },
+            ),
+        ],
+    )
+    client = FredClient(api_key="test-key", session=session, backoff_seconds=0)
+
+    frame = client.fetch_series_observations(
+        series_id="UNRATE",
+        observation_start="2020-01-01",
+        realtime_start="2020-01-01",
+        realtime_end="2023-12-31",
+        vintage_mode="initial_release",
+        chunk_realtime=True,
+        realtime_chunk_years=2,
+    )
+
+    assert len(session.calls) == 2
+    assert len(frame) == 2
+    assert session.calls[0]["params"]["realtime_start"] == "2020-01-01"
+    assert session.calls[0]["params"]["realtime_end"] == "2021-12-31"
+    assert session.calls[1]["params"]["realtime_start"] == "2022-01-01"
+    assert session.calls[1]["params"]["realtime_end"] == "2023-12-31"
+
+
+def test_fred_chunked_initial_release_drops_exact_duplicates() -> None:
+    """Verify exact duplicate normalized observations are removed after chunks."""
+    observation = {
+        "realtime_start": "2020-02-01",
+        "realtime_end": "2020-02-01",
+        "date": "2020-01-01",
+        "value": "3.5",
+    }
+    session = SequenceSession(
+        [
+            FakeResponse({"observations": [observation]}),
+            FakeResponse({"observations": [observation]}),
+        ],
+    )
+    client = FredClient(api_key="test-key", session=session, backoff_seconds=0)
+
+    frame = client.fetch_series_observations(
+        series_id="UNRATE",
+        observation_start="2020-01-01",
+        realtime_start="2020-01-01",
+        realtime_end="2021-12-31",
+        vintage_mode="initial_release",
+        chunk_realtime=True,
+        realtime_chunk_years=1,
+    )
+
+    assert len(frame) == 1
+
+
+def test_fred_chunked_initial_release_passes_observation_start_to_every_chunk() -> None:
+    """Verify observation_start is passed through on each real-time chunk."""
+    session = SequenceSession(
+        [
+            FakeResponse({"observations": []}),
+            FakeResponse({"observations": []}),
+        ],
+    )
+    client = FredClient(api_key="test-key", session=session, backoff_seconds=0)
+
+    client.fetch_series_observations(
+        series_id="UNRATE",
+        observation_start="2020-01-01",
+        realtime_start="2020-01-01",
+        realtime_end="2021-12-31",
+        vintage_mode="initial_release",
+        chunk_realtime=True,
+        realtime_chunk_years=1,
+    )
+
+    assert {call["params"]["observation_start"] for call in session.calls} == {
+        "2020-01-01",
+    }
+
+
+def test_fred_chunked_initial_release_failed_chunk_raises_with_window() -> None:
+    """Verify failed chunks are surfaced with the chunk window."""
+    session = SequenceSession(
+        [
+            FakeResponse({"observations": []}),
+            FakeResponse({}, status_code=400, text="Bad chunk"),
+        ],
+    )
+    client = FredClient(
+        api_key="test-key",
+        session=session,
+        backoff_seconds=0,
+        max_retries=1,
+    )
+
+    with pytest.raises(FredApiError, match="2021-01-01 to 2021-12-31"):
+        client.fetch_series_observations(
+            series_id="UNRATE",
+            observation_start="2020-01-01",
+            realtime_start="2020-01-01",
+            realtime_end="2021-12-31",
+            vintage_mode="initial_release",
+            chunk_realtime=True,
+            realtime_chunk_years=1,
+        )
+
+
+def test_fred_chunked_realtime_requires_initial_release(
+    fred_payload: dict[str, Any],
+) -> None:
+    """Verify chunking is rejected outside initial-release mode."""
+    client = FredClient(
+        api_key="test-key",
+        session=FakeSession(fred_payload),
+        backoff_seconds=0,
+    )
+
+    with pytest.raises(FredApiError, match="chunk_realtime"):
+        client.fetch_series_observations(series_id="UNRATE", chunk_realtime=True)
 
 
 def test_fred_invalid_output_type_raises(fred_payload: dict[str, Any]) -> None:

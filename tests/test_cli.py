@@ -112,6 +112,7 @@ def test_cli_fetch_fred_records_ingestion_run(monkeypatch, tmp_path, capsys) -> 
     assert "Inserted: 1" in output
     assert run["status"] == "succeeded"
     assert FakeFredClient.calls[0]["vintage_mode"] == "current"
+    assert FakeFredClient.calls[0]["chunk_realtime"] is False
     assert stored_count == 1
 
 
@@ -155,11 +156,61 @@ def test_cli_fetch_fred_initial_release_records_vintage_parameters(
     assert FakeFredClient.calls[0]["output_type"] == 4
     assert FakeFredClient.calls[0]["realtime_start"] == "1776-07-04"
     assert FakeFredClient.calls[0]["realtime_end"] == "9999-12-31"
+    assert FakeFredClient.calls[0]["chunk_realtime"] is False
     assert parameters["vintage_mode"] == "initial_release"
     assert parameters["output_type"] == 4
     assert parameters["observation_start"] == "2010-01-01"
     assert parameters["realtime_start"] == "1776-07-04"
     assert parameters["realtime_end"] == "9999-12-31"
+    assert parameters["chunk_realtime"] is False
+    assert parameters["realtime_chunk_years"] == 5
+
+
+def test_cli_fetch_fred_chunk_realtime_records_parameters(
+    monkeypatch,
+    tmp_path,
+    capsys,
+) -> None:
+    """Verify fetch-fred passes chunked realtime options to the client."""
+    database_url = f"sqlite:///{(tmp_path / 'macro.sqlite').as_posix()}"
+    FakeFredClient.calls = []
+    monkeypatch.setattr(cli, "FredClient", FakeFredClient)
+
+    result = cli.main(
+        [
+            "fetch-fred",
+            "--series-id",
+            "DGS2",
+            "--start",
+            "2010-01-01",
+            "--vintage-mode",
+            "initial_release",
+            "--chunk-realtime",
+            "--realtime-chunk-years",
+            "5",
+            "--database-url",
+            database_url,
+        ],
+    )
+
+    output = capsys.readouterr().out
+    engine = get_engine(database_url)
+    with engine.connect() as connection:
+        run = connection.execute(select(ingestion_runs)).mappings().one()
+    engine.dispose()
+    parameters = json.loads(run["parameters_json"])
+    today = pd.Timestamp.now(tz="UTC").date().isoformat()
+
+    assert result == 0
+    assert "Chunking FRED real-time window into 5-year chunks." in output
+    assert FakeFredClient.calls[0]["chunk_realtime"] is True
+    assert FakeFredClient.calls[0]["realtime_chunk_years"] == 5
+    assert FakeFredClient.calls[0]["realtime_start"] == "2010-01-01"
+    assert FakeFredClient.calls[0]["realtime_end"] == today
+    assert parameters["chunk_realtime"] is True
+    assert parameters["realtime_chunk_years"] == 5
+    assert parameters["realtime_start"] == "2010-01-01"
+    assert parameters["realtime_end"] == today
 
 
 def test_cli_fetch_fred_invalid_vintage_mode_fails() -> None:

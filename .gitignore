@@ -21,6 +21,7 @@ __pycache__/
 # Raw and generated data
 data/*
 !data/.gitkeep
+!data/reference/
 *.csv
 *.tsv
 *.parquet
@@ -34,6 +35,7 @@ data/*
 *.jpeg
 *.svg
 *.pdf
+!data/reference/cpi_release_calendar_sample.csv
 
 # Keep scaffold directories
 !reports/.gitkeep

@@ -39,7 +39,7 @@ macro_observations = Table(
     Column("date", Date, nullable=False),
     Column("value", Float, nullable=True),
     Column("source", String(64), nullable=False),
-    Column("release_date", Date, nullable=False),
+    Column("release_date", Date, nullable=True),
     Column("fetched_at", DateTime(timezone=True), nullable=False),
 )
 

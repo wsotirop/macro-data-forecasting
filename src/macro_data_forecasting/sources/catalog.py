@@ -114,3 +114,39 @@ FRED_SERIES_CATALOG: dict[str, dict[str, str]] = {
         "frequency_hint": "daily",
     },
 }
+
+BLS_SERIES_CATALOG: dict[str, dict[str, str]] = {
+    "CUSR0000SA0": {
+        "series_id": "CUSR0000SA0",
+        "description": "CPI-U All items, seasonally adjusted",
+        "source": "bls",
+        "category": "inflation",
+        "frequency_hint": "monthly",
+    },
+    "CUSR0000SA0L1E": {
+        "series_id": "CUSR0000SA0L1E",
+        "description": "CPI-U All items less food, seasonally adjusted",
+        "source": "bls",
+        "category": "inflation",
+        "frequency_hint": "monthly",
+    },
+    "CUUR0000SA0": {
+        "series_id": "CUUR0000SA0",
+        "description": "CPI-U All items, not seasonally adjusted",
+        "source": "bls",
+        "category": "inflation",
+        "frequency_hint": "monthly",
+    },
+    "CUUR0000SA0L1E": {
+        "series_id": "CUUR0000SA0L1E",
+        "description": "CPI-U All items less food, not seasonally adjusted",
+        "source": "bls",
+        "category": "inflation",
+        "frequency_hint": "monthly",
+    },
+}
+
+SERIES_CATALOG: dict[str, dict[str, str]] = {
+    **FRED_SERIES_CATALOG,
+    **BLS_SERIES_CATALOG,
+}

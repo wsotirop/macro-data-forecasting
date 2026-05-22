@@ -30,7 +30,9 @@ Macroeconomic forecasting workflows are easy to contaminate with data that was r
 
 Stage 2A adds the first real ingestion path for FRED/ALFRED series. The current client fetches FRED `series/observations`, normalizes observations, validates the point-in-time columns, and stores rows in the local SQLAlchemy database.
 
-No BLS, Treasury, market-data, feature-engineering, or modeling logic is implemented yet.
+Stage 2B adds BLS CPI/Core CPI ingestion for monthly CPI series and a separate CPI release-calendar mapping utility. BLS observations can be fetched without an API key, but exact `release_date` values require a local official release calendar CSV.
+
+No Treasury, market-data, feature-engineering, or modeling logic is implemented yet.
 
 ## Point-In-Time Columns
 
@@ -41,6 +43,8 @@ Every stored observation distinguishes:
 - `fetched_at`: the timestamp when this system fetched the value.
 
 For FRED/ALFRED, the observations endpoint provides realtime vintage metadata. Until exact release calendars are integrated, this project uses each observation's `realtime_start` vintage date as the best available `release_date` approximation. This preserves vintage awareness but should not be treated as a perfect official release timestamp for every series.
+
+For BLS CPI data, `date` is the CPI reference month derived from BLS `year` and `period` fields. The BLS Public Data API does not guarantee exact release dates for every observation in the observation payload, so CPI `release_date` should be mapped from an official CPI release calendar. If no release calendar is supplied, BLS rows may keep `release_date` missing rather than silently approximating it.
 
 ## First Target
 
@@ -85,5 +89,19 @@ Fetch and store CPI observations:
 ```powershell
 uv run python -m macro_data_forecasting.cli fetch-fred --series-id CPIAUCSL --start 2010-01-01
 ```
+
+Fetch and store BLS headline CPI observations:
+
+```powershell
+uv run python -m macro_data_forecasting.cli fetch-bls --series-id CUSR0000SA0 --start-year 2020 --end-year 2024
+```
+
+Fetch BLS CPI and map release dates from a local calendar:
+
+```powershell
+uv run python -m macro_data_forecasting.cli fetch-bls --series-id CUSR0000SA0 --start-year 2026 --end-year 2026 --release-calendar data/reference/cpi_release_calendar_sample.csv
+```
+
+The included `data/reference/cpi_release_calendar_sample.csv` is only for tests and examples. It is not a complete historical CPI release calendar and should not be used as the production source for point-in-time CPI backtests.
 
 Do not commit `.env` or API keys.

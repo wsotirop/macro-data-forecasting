@@ -6,7 +6,9 @@ def test_main_modules_import() -> None:
     import macro_data_forecasting.config  # noqa: F401
     import macro_data_forecasting.database  # noqa: F401
     import macro_data_forecasting.evaluation.metrics  # noqa: F401
+    import macro_data_forecasting.features.dataset_contract  # noqa: F401
     import macro_data_forecasting.features.point_in_time  # noqa: F401
+    import macro_data_forecasting.features.targets  # noqa: F401
     import macro_data_forecasting.features.transforms  # noqa: F401
     import macro_data_forecasting.logging_config  # noqa: F401
     import macro_data_forecasting.models.baselines  # noqa: F401

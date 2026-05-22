@@ -10,8 +10,15 @@ import pandas as pd
 from macro_data_forecasting.database import (
     get_ingestion_run,
     list_ingestion_runs,
+    load_observations,
     summarize_observation_coverage,
 )
+from macro_data_forecasting.features.dataset_contract import (
+    FEATURE_DATASET_BASE_COLUMNS,
+    create_empty_feature_dataset,
+    validate_target_frame,
+)
+from macro_data_forecasting.features.targets import build_cpi_mom_target
 from macro_data_forecasting.sources.bls import BlsClient
 from macro_data_forecasting.sources.bls_release_calendar import (
     assert_calendar_coverage,
@@ -71,6 +78,16 @@ def _build_parser() -> argparse.ArgumentParser:
     coverage.add_argument("--source")
     coverage.add_argument("--series-id")
     coverage.add_argument("--database-url")
+
+    build_cpi_target = subparsers.add_parser(
+        "build-cpi-target",
+        help="Build headline CPI MoM target shell",
+    )
+    build_cpi_target.add_argument("--series-id", default="CUSR0000SA0")
+    build_cpi_target.add_argument("--source", default="bls")
+    build_cpi_target.add_argument("--output", type=Path)
+    build_cpi_target.add_argument("--allow-missing-release-dates", action="store_true")
+    build_cpi_target.add_argument("--database-url")
 
     return parser
 
@@ -227,6 +244,33 @@ def main(argv: Sequence[str] | None = None) -> int:
         _print_dataframe(coverage_summary, "No observation coverage found.")
         return 0
 
+    if args.command == "build-cpi-target":
+        observations = load_observations(
+            database_url=args.database_url,
+            source=args.source,
+            series_id=args.series_id,
+        )
+        targets = build_cpi_mom_target(
+            observations,
+            series_id=args.series_id,
+            source=args.source,
+            strict_release_dates=not args.allow_missing_release_dates,
+        )
+        if args.allow_missing_release_dates:
+            dataset = _create_relaxed_feature_dataset(targets)
+        else:
+            validated_targets = validate_target_frame(targets)
+            dataset = create_empty_feature_dataset(validated_targets)
+
+        if args.output is not None:
+            args.output.parent.mkdir(parents=True, exist_ok=True)
+            dataset.to_csv(args.output, index=False)
+            print(f"Wrote {len(dataset)} rows to {args.output}")
+        else:
+            _print_dataframe(dataset.head(10), "No CPI target rows built.")
+            print(f"Rows: {len(dataset)}")
+        return 0
+
     parser.error(f"Unsupported command: {args.command}")
     return 2
 
@@ -241,6 +285,20 @@ def _print_dataframe(frame: pd.DataFrame, empty_message: str) -> None:
 def _print_mapping(values: dict[str, object]) -> None:
     for key, value in values.items():
         print(f"{key}: {value}")
+
+
+def _create_relaxed_feature_dataset(targets: pd.DataFrame) -> pd.DataFrame:
+    dataset = pd.DataFrame(
+        {
+            "forecast_timestamp": targets["release_date"],
+            "target_id": targets["target_id"],
+            "target_reference_date": targets["reference_date"],
+            "target_release_date": targets["release_date"],
+            "target_value": targets["target_value"],
+        },
+        columns=FEATURE_DATASET_BASE_COLUMNS,
+    )
+    return dataset
 
 
 def _print_ingestion_result(result: dict[str, int], series_id: str) -> None:

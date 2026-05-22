@@ -25,6 +25,7 @@ Macroeconomic forecasting workflows are easy to contaminate with data that was r
 - Stage 2C: CPI release calendar validation
 - Stage 2D: Idempotent ingestion and run metadata
 - Stage 2E: Ingestion audit and coverage CLI
+- Stage 3A: CPI target construction and dataset contract
 - Stage 3: Point-in-time feature engineering
 - Stage 4: Modeling and walk-forward validation
 - Stage 5: Automated reporting
@@ -41,7 +42,9 @@ Stage 2D adds idempotent upsert behavior and ingestion-run metadata. Re-running 
 
 Stage 2E adds audit commands for inspecting ingestion history and stored observation coverage from the command line.
 
-No Treasury, market-data, feature-engineering, or modeling logic is implemented yet.
+Stage 3A adds the first target-construction contract: U.S. headline CPI month-over-month inflation. It builds a target shell from normalized CPI observations, validates target release dates, and creates an empty model-dataset shell.
+
+No Treasury, market-data, full feature-engineering, or modeling logic is implemented yet.
 
 ## Point-In-Time Columns
 
@@ -62,6 +65,26 @@ For rows where `release_date` is intentionally missing, such as unmapped BLS obs
 Each CLI ingestion command records an `ingestion_runs` row with source, series, parameters, status, timestamps, row counts, and any error message. Failed ingestion runs are recorded and the exception is still surfaced.
 
 Auditability matters because reproducible macro forecasting depends on knowing which data was fetched, when it was fetched, which parameters were used, whether the run succeeded, and what observation coverage is available before building point-in-time features.
+
+## CPI Target Construction
+
+The initial target is headline CPI month-over-month inflation:
+
+```text
+target_value = 100 * (CPI_t / CPI_t-1 - 1)
+```
+
+Targets are labeled by CPI reference month and official CPI `release_date`. In strict mode, missing release dates are rejected rather than filled or approximated.
+
+Stage 3A only creates the dataset shell:
+
+- `forecast_timestamp`
+- `target_id`
+- `target_reference_date`
+- `target_release_date`
+- `target_value`
+
+For now, `forecast_timestamp` is set to `target_release_date`. Real point-in-time feature joins are not implemented yet and will come in a later stage.
 
 ## First Target
 
@@ -149,6 +172,12 @@ Summarize stored observation coverage:
 
 ```powershell
 uv run python -m macro_data_forecasting.cli coverage
+```
+
+Build the CPI target dataset shell:
+
+```powershell
+uv run python -m macro_data_forecasting.cli build-cpi-target --series-id CUSR0000SA0 --output data/processed/cpi_target_shell.csv
 ```
 
 The included `data/reference/cpi_release_calendar_sample.csv` is only for tests and examples. It is not a complete historical CPI release calendar and should not be used as the production source for point-in-time CPI backtests.

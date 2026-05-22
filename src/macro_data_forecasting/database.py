@@ -441,3 +441,35 @@ def summarize_observation_coverage(
         rows = connection.execute(statement).mappings().all()
     engine.dispose()
     return pd.DataFrame(rows, columns=OBSERVATION_COVERAGE_COLUMNS)
+
+
+def load_observations(
+    database_url: str | None = None,
+    source: str | None = None,
+    series_id: str | None = None,
+) -> pd.DataFrame:
+    """Load normalized macro observations from the database."""
+    statement = select(
+        macro_observations.c.series_id,
+        macro_observations.c.date,
+        macro_observations.c.value,
+        macro_observations.c.source,
+        macro_observations.c.release_date,
+        macro_observations.c.fetched_at,
+    )
+    if source is not None:
+        statement = statement.where(macro_observations.c.source == source)
+    if series_id is not None:
+        statement = statement.where(macro_observations.c.series_id == series_id)
+    statement = statement.order_by(
+        macro_observations.c.source,
+        macro_observations.c.series_id,
+        macro_observations.c.date,
+        macro_observations.c.release_date,
+    )
+
+    engine = initialize_database(database_url)
+    with engine.connect() as connection:
+        rows = connection.execute(statement).mappings().all()
+    engine.dispose()
+    return pd.DataFrame(rows, columns=REQUIRED_OBSERVATION_COLUMNS)

@@ -13,6 +13,7 @@ from macro_data_forecasting.database import (
     start_ingestion_run,
     upsert_observations,
 )
+from macro_data_forecasting.features.targets import TargetConstructionError
 from macro_data_forecasting.sources.bls_release_calendar import CalendarCoverageError
 
 
@@ -230,3 +231,118 @@ def test_cli_coverage_outputs_summary(tmp_path, capsys) -> None:
     assert "row_count" in output
     assert "2020-01-01" in output
     assert "missing_release_date_count" in output
+
+
+def _seed_cpi_observations(
+    database_url: str,
+    missing_release_date: bool = False,
+) -> None:
+    release_dates = ["2026-02-12", "2026-03-11", "2026-04-10"]
+    if missing_release_date:
+        release_dates[1] = pd.NaT
+    upsert_observations(
+        pd.DataFrame(
+            {
+                "series_id": ["CUSR0000SA0", "CUSR0000SA0", "CUSR0000SA0"],
+                "date": ["2026-01-01", "2026-02-01", "2026-03-01"],
+                "value": [100.0, 101.0, 103.02],
+                "source": ["bls", "bls", "bls"],
+                "release_date": release_dates,
+                "fetched_at": ["2026-05-21T21:00:00Z"] * 3,
+            },
+        ),
+        database_url=database_url,
+    )
+
+
+def test_cli_build_cpi_target_prints_shell(tmp_path, capsys) -> None:
+    """Verify build-cpi-target builds a shell from stored observations."""
+    database_url = f"sqlite:///{(tmp_path / 'macro.sqlite').as_posix()}"
+    _seed_cpi_observations(database_url)
+
+    result = cli.main(
+        [
+            "build-cpi-target",
+            "--series-id",
+            "CUSR0000SA0",
+            "--database-url",
+            database_url,
+        ],
+    )
+
+    output = capsys.readouterr().out
+    assert result == 0
+    assert "cpi_mom" in output
+    assert "Rows: 2" in output
+
+
+def test_cli_build_cpi_target_fails_missing_release_dates(tmp_path) -> None:
+    """Verify strict CLI target construction rejects missing release dates."""
+    database_url = f"sqlite:///{(tmp_path / 'macro.sqlite').as_posix()}"
+    _seed_cpi_observations(database_url, missing_release_date=True)
+
+    with pytest.raises(TargetConstructionError, match="requires release_date"):
+        cli.main(
+            [
+                "build-cpi-target",
+                "--series-id",
+                "CUSR0000SA0",
+                "--database-url",
+                database_url,
+            ],
+        )
+
+
+def test_cli_build_cpi_target_allows_missing_release_dates_when_requested(
+    tmp_path,
+    capsys,
+) -> None:
+    """Verify diagnostic target shell can be built with missing release dates."""
+    database_url = f"sqlite:///{(tmp_path / 'macro.sqlite').as_posix()}"
+    _seed_cpi_observations(database_url, missing_release_date=True)
+
+    result = cli.main(
+        [
+            "build-cpi-target",
+            "--series-id",
+            "CUSR0000SA0",
+            "--allow-missing-release-dates",
+            "--database-url",
+            database_url,
+        ],
+    )
+
+    output = capsys.readouterr().out
+    assert result == 0
+    assert "Rows: 2" in output
+
+
+def test_cli_build_cpi_target_writes_output_csv(tmp_path) -> None:
+    """Verify build-cpi-target writes CSV output when requested."""
+    database_url = f"sqlite:///{(tmp_path / 'macro.sqlite').as_posix()}"
+    output_path = tmp_path / "cpi_target_shell.csv"
+    _seed_cpi_observations(database_url)
+
+    result = cli.main(
+        [
+            "build-cpi-target",
+            "--series-id",
+            "CUSR0000SA0",
+            "--output",
+            str(output_path),
+            "--database-url",
+            database_url,
+        ],
+    )
+
+    written = pd.read_csv(output_path)
+    assert result == 0
+    assert output_path.exists()
+    assert len(written) == 2
+    assert list(written.columns) == [
+        "forecast_timestamp",
+        "target_id",
+        "target_reference_date",
+        "target_release_date",
+        "target_value",
+    ]

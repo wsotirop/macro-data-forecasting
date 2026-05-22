@@ -16,6 +16,7 @@ from macro_data_forecasting.database import (
     initialize_database,
     insert_observations,
     list_ingestion_runs,
+    load_observations,
     macro_observations,
     start_ingestion_run,
     summarize_observation_coverage,
@@ -301,3 +302,30 @@ def test_summarize_observation_coverage_counts_missing_release_dates(
     assert row["missing_release_date_count"] == 2
     assert pd.isna(row["min_release_date"])
     assert pd.isna(row["max_release_date"])
+
+
+def test_load_observations_returns_filtered_rows(tmp_path) -> None:
+    """Verify stored observations can be loaded by source and series."""
+    database_url = f"sqlite:///{(tmp_path / 'macro.sqlite').as_posix()}"
+    frame = pd.DataFrame(
+        {
+            "series_id": ["CPIAUCSL", "CUSR0000SA0"],
+            "date": ["2020-01-01", "2026-04-01"],
+            "value": [258.678, 319.086],
+            "source": ["fred", "bls"],
+            "release_date": ["2020-02-13", "2026-05-12"],
+            "fetched_at": ["2026-05-21T21:00:00Z", "2026-05-21T21:00:00Z"],
+        },
+    )
+    upsert_observations(frame, database_url=database_url)
+
+    observations = load_observations(
+        database_url=database_url,
+        source="bls",
+        series_id="CUSR0000SA0",
+    )
+
+    assert len(observations) == 1
+    assert observations.loc[0, "series_id"] == "CUSR0000SA0"
+    assert observations.loc[0, "source"] == "bls"
+    assert observations.loc[0, "date"].isoformat() == "2026-04-01"

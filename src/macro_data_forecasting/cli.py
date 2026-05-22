@@ -35,6 +35,11 @@ from macro_data_forecasting.models.validation import walk_forward_validate
 from macro_data_forecasting.reports.generate_report import (
     generate_model_comparison_report,
 )
+from macro_data_forecasting.reports.plots import (
+    plot_forecast_errors,
+    plot_metric_comparison,
+    plot_predictions_vs_actuals,
+)
 from macro_data_forecasting.sources.bls import BlsClient
 from macro_data_forecasting.sources.bls_release_calendar import (
     assert_calendar_coverage,
@@ -147,6 +152,8 @@ def _build_parser() -> argparse.ArgumentParser:
     compare_models.add_argument("--output-dir", type=Path)
     compare_models.add_argument("--prefix", default="model_comparison")
     compare_models.add_argument("--report", type=Path)
+    compare_models.add_argument("--include-plots", action="store_true")
+    compare_models.add_argument("--plots-dir", type=Path, default=Path("reports/plots"))
 
     generate_report = subparsers.add_parser(
         "generate-report",
@@ -158,6 +165,12 @@ def _build_parser() -> argparse.ArgumentParser:
     generate_report.add_argument("--title", default="Macro Data Forecasting Report")
     generate_report.add_argument("--dataset", type=Path)
     generate_report.add_argument("--notes")
+    generate_report.add_argument("--include-plots", action="store_true")
+    generate_report.add_argument(
+        "--plots-dir",
+        type=Path,
+        default=Path("reports/plots"),
+    )
 
     return parser
 
@@ -405,6 +418,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
 
     if args.command == "compare-models":
+        if args.include_plots and args.report is None:
+            parser.error("--include-plots requires --report for compare-models.")
         dataset = pd.read_csv(args.dataset)
         forecasts, metrics = run_model_comparison(
             dataset,
@@ -424,11 +439,17 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"Wrote forecasts to {paths['forecasts']}")
             print(f"Wrote metrics to {paths['metrics']}")
         if args.report is not None:
+            plot_paths = (
+                _generate_report_plots(forecasts, metrics, args.plots_dir)
+                if args.include_plots
+                else None
+            )
             report_path = generate_model_comparison_report(
                 metrics=metrics,
                 forecasts=forecasts,
                 output_path=args.report,
                 dataset_path=args.dataset,
+                plot_paths=plot_paths,
             )
             print(f"Wrote report to {report_path}")
         return 0
@@ -436,6 +457,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "generate-report":
         metrics = pd.read_csv(args.metrics)
         forecasts = pd.read_csv(args.forecasts)
+        plot_paths = (
+            _generate_report_plots(forecasts, metrics, args.plots_dir)
+            if args.include_plots
+            else None
+        )
         report_path = generate_model_comparison_report(
             metrics=metrics,
             forecasts=forecasts,
@@ -443,6 +469,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             title=args.title,
             dataset_path=args.dataset,
             notes=args.notes,
+            plot_paths=plot_paths,
         )
         print(f"Wrote report to {report_path}")
         return 0
@@ -480,6 +507,33 @@ def _print_naive_comparisons(metrics: pd.DataFrame) -> None:
             print(f"{model_name} beats naive on MAE.")
         else:
             print(f"{model_name} does not beat naive on MAE.")
+
+
+def _generate_report_plots(
+    forecasts: pd.DataFrame,
+    metrics: pd.DataFrame,
+    plots_dir: Path,
+) -> dict[str, Path]:
+    return {
+        "predictions_vs_actuals": plot_predictions_vs_actuals(
+            forecasts,
+            plots_dir / "predictions_vs_actuals.png",
+        ),
+        "forecast_errors": plot_forecast_errors(
+            forecasts,
+            plots_dir / "forecast_errors.png",
+        ),
+        "rmse_comparison": plot_metric_comparison(
+            metrics,
+            plots_dir / "rmse_comparison.png",
+            metric="rmse",
+        ),
+        "mae_comparison": plot_metric_comparison(
+            metrics,
+            plots_dir / "mae_comparison.png",
+            metric="mae",
+        ),
+    }
 
 
 def _create_relaxed_feature_dataset(targets: pd.DataFrame) -> pd.DataFrame:

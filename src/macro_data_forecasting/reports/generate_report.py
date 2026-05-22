@@ -1,6 +1,7 @@
 """Markdown reporting for model comparison outputs."""
 
 from datetime import UTC, datetime
+from os import path as os_path
 from pathlib import Path
 
 import pandas as pd
@@ -48,6 +49,7 @@ def generate_model_comparison_report(
     title: str = "Macro Data Forecasting Report",
     dataset_path: str | Path | None = None,
     notes: str | None = None,
+    plot_paths: dict[str, str | Path] | None = None,
 ) -> Path:
     """Generate a markdown report from model metrics and forecasts."""
     report_path = Path(output_path)
@@ -67,13 +69,19 @@ def generate_model_comparison_report(
         dataframe_to_markdown_table(normalized_metrics.loc[:, METRICS_REPORT_COLUMNS]),
         "## Naive Benchmark Interpretation",
         _build_naive_interpretation(normalized_metrics),
-        "## Forecast Output Summary",
-        _build_forecast_summary(normalized_forecasts),
-        "## Methodology",
-        _build_methodology_section(),
-        "## Limitations",
-        _build_limitations_section(),
     ]
+    if plot_paths:
+        sections.extend(["## Plots", _build_plots_section(plot_paths, report_path)])
+    sections.extend(
+        [
+            "## Forecast Output Summary",
+            _build_forecast_summary(normalized_forecasts),
+            "## Methodology",
+            _build_methodology_section(),
+            "## Limitations",
+            _build_limitations_section(),
+        ],
+    )
     if notes:
         sections.extend(["## Notes", str(notes)])
 
@@ -170,6 +178,35 @@ def _build_naive_interpretation(metrics: pd.DataFrame) -> str:
         lines.append(f"- {model_name} {rmse_verb} the naive baseline on RMSE.")
         lines.append(f"- {model_name} {mae_verb} the naive baseline on MAE.")
     return "\n".join(lines)
+
+
+def _build_plots_section(
+    plot_paths: dict[str, str | Path],
+    report_path: Path,
+) -> str:
+    labels = {
+        "predictions_vs_actuals": "Predictions vs Actuals",
+        "forecast_errors": "Forecast Errors",
+        "rmse_comparison": "RMSE Comparison",
+        "mae_comparison": "MAE Comparison",
+    }
+    lines: list[str] = []
+    for plot_name, plot_path in plot_paths.items():
+        label = labels.get(plot_name, plot_name.replace("_", " ").title())
+        reference = _format_plot_reference(Path(plot_path), report_path)
+        lines.append(f"![{label}]({reference})")
+    return "\n\n".join(lines)
+
+
+def _format_plot_reference(plot_path: Path, report_path: Path) -> str:
+    try:
+        relative_path = os_path.relpath(
+            plot_path.resolve(),
+            start=report_path.parent.resolve(),
+        )
+        return Path(relative_path).as_posix()
+    except ValueError:
+        return plot_path.as_posix()
 
 
 def _build_forecast_summary(forecasts: pd.DataFrame) -> str:

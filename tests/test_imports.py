@@ -17,6 +17,7 @@ def test_main_modules_import() -> None:
     import macro_data_forecasting.models.results  # noqa: F401
     import macro_data_forecasting.models.validation  # noqa: F401
     import macro_data_forecasting.reports.generate_report  # noqa: F401
+    import macro_data_forecasting.reports.plots  # noqa: F401
     import macro_data_forecasting.sources.base  # noqa: F401
     import macro_data_forecasting.sources.bls  # noqa: F401
     import macro_data_forecasting.sources.bls_release_calendar  # noqa: F401

@@ -698,6 +698,39 @@ def test_cli_generate_report_writes_markdown(tmp_path, capsys) -> None:
     assert "CLI note." in content
 
 
+def test_cli_generate_report_include_plots_writes_pngs(tmp_path) -> None:
+    """Verify generate-report can include generated plot files."""
+    metrics_path = tmp_path / "metrics.csv"
+    forecasts_path = tmp_path / "forecasts.csv"
+    output_path = tmp_path / "baseline_report.md"
+    plots_dir = tmp_path / "plots"
+    _comparison_metrics().to_csv(metrics_path, index=False)
+    _comparison_forecasts().to_csv(forecasts_path, index=False)
+
+    result = cli.main(
+        [
+            "generate-report",
+            "--metrics",
+            str(metrics_path),
+            "--forecasts",
+            str(forecasts_path),
+            "--output",
+            str(output_path),
+            "--include-plots",
+            "--plots-dir",
+            str(plots_dir),
+        ],
+    )
+
+    content = output_path.read_text(encoding="utf-8")
+    assert result == 0
+    assert "## Plots" in content
+    assert (plots_dir / "predictions_vs_actuals.png").exists()
+    assert (plots_dir / "forecast_errors.png").exists()
+    assert (plots_dir / "rmse_comparison.png").exists()
+    assert (plots_dir / "mae_comparison.png").exists()
+
+
 def test_cli_compare_models_report_option_writes_markdown(tmp_path) -> None:
     """Verify compare-models can generate a report from in-memory outputs."""
     dataset_path = tmp_path / "feature_matrix.csv"
@@ -723,3 +756,39 @@ def test_cli_compare_models_report_option_writes_markdown(tmp_path) -> None:
     assert result == 0
     assert report_path.exists()
     assert "## Naive Benchmark Interpretation" in content
+
+
+def test_cli_compare_models_report_include_plots_writes_markdown_and_pngs(
+    tmp_path,
+) -> None:
+    """Verify compare-models can generate plot-backed markdown reports."""
+    dataset_path = tmp_path / "feature_matrix.csv"
+    report_path = tmp_path / "comparison_report.md"
+    plots_dir = tmp_path / "plots"
+    _validation_dataset().to_csv(dataset_path, index=False)
+
+    result = cli.main(
+        [
+            "compare-models",
+            "--dataset",
+            str(dataset_path),
+            "--models",
+            "naive_last_value",
+            "ridge",
+            "--min-train-size",
+            "3",
+            "--report",
+            str(report_path),
+            "--include-plots",
+            "--plots-dir",
+            str(plots_dir),
+        ],
+    )
+
+    content = report_path.read_text(encoding="utf-8")
+    assert result == 0
+    assert "## Plots" in content
+    assert (plots_dir / "predictions_vs_actuals.png").exists()
+    assert (plots_dir / "forecast_errors.png").exists()
+    assert (plots_dir / "rmse_comparison.png").exists()
+    assert (plots_dir / "mae_comparison.png").exists()

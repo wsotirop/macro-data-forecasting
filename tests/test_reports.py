@@ -121,6 +121,23 @@ def test_report_includes_notes_when_provided(tmp_path) -> None:
     assert "Research note." in content
 
 
+def test_report_includes_plots_section_when_paths_provided(tmp_path) -> None:
+    """Verify report references plot paths with markdown image syntax."""
+    output_path = tmp_path / "baseline_report.md"
+    plot_path = tmp_path / "plots" / "predictions_vs_actuals.png"
+
+    generate_model_comparison_report(
+        _metrics(),
+        _forecasts(),
+        output_path,
+        plot_paths={"predictions_vs_actuals": plot_path},
+    )
+
+    content = output_path.read_text(encoding="utf-8")
+    assert "## Plots" in content
+    assert "![Predictions vs Actuals](plots/predictions_vs_actuals.png)" in content
+
+
 def test_dataframe_to_markdown_table_works_without_extra_dependencies() -> None:
     """Verify fallback markdown table formatting."""
     table = dataframe_to_markdown_table(

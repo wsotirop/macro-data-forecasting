@@ -5,10 +5,14 @@ import warnings
 from collections.abc import Sequence
 from pathlib import Path
 
+import pandas as pd
+
 from macro_data_forecasting.sources.bls import BlsClient
 from macro_data_forecasting.sources.bls_release_calendar import (
+    assert_calendar_coverage,
     load_cpi_release_calendar,
     map_cpi_release_dates,
+    normalize_reference_period,
 )
 from macro_data_forecasting.sources.fred import FredClient
 
@@ -34,6 +38,14 @@ def _build_parser() -> argparse.ArgumentParser:
     fetch_bls.add_argument("--annual-average", action="store_true")
     fetch_bls.add_argument("--release-calendar", type=Path)
     fetch_bls.add_argument("--database-url")
+
+    validate_cpi_calendar = subparsers.add_parser(
+        "validate-cpi-calendar",
+        help="Validate a local CPI release calendar",
+    )
+    validate_cpi_calendar.add_argument("--calendar", type=Path, required=True)
+    validate_cpi_calendar.add_argument("--start-period")
+    validate_cpi_calendar.add_argument("--end-period")
 
     return parser
 
@@ -79,6 +91,38 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         row_count = client.store(observations, database_url=args.database_url)
         print(f"Inserted {row_count} rows for {args.series_id}.")
+        return 0
+
+    if args.command == "validate-cpi-calendar":
+        calendar = load_cpi_release_calendar(args.calendar)
+        if bool(args.start_period) != bool(args.end_period):
+            parser.error("--start-period and --end-period must be provided together.")
+        if args.start_period and args.end_period:
+            start_period = normalize_reference_period(args.start_period)
+            end_period = normalize_reference_period(args.end_period)
+            if start_period > end_period:
+                parser.error("--start-period must be before or equal to --end-period.")
+            period_range = pd.period_range(start_period, end_period, freq="M")
+            observations = pd.DataFrame(
+                {
+                    "date": [
+                        period.to_timestamp().date() for period in period_range
+                    ],
+                },
+            )
+            assert_calendar_coverage(observations, calendar, strict=True)
+
+        print(f"Calendar rows: {len(calendar)}")
+        print(
+            "Reference period range: "
+            f"{calendar['reference_period'].min()} to "
+            f"{calendar['reference_period'].max()}",
+        )
+        print(
+            "Release date range: "
+            f"{calendar['release_date'].min().isoformat()} to "
+            f"{calendar['release_date'].max().isoformat()}",
+        )
         return 0
 
     parser.error(f"Unsupported command: {args.command}")

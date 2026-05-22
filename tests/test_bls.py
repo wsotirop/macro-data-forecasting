@@ -156,7 +156,11 @@ def test_cpi_release_calendar_loads_sample() -> None:
     )
 
     assert "2026-04" in set(calendar["reference_period"])
-    assert calendar.loc[0, "release_date"].isoformat() == "2026-05-12"
+    april_release = calendar.loc[
+        calendar["reference_period"] == "2026-04",
+        "release_date",
+    ].iloc[0]
+    assert april_release.isoformat() == "2026-05-12"
 
 
 def test_cpi_release_calendar_maps_release_dates(

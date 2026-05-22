@@ -22,6 +22,7 @@ __pycache__/
 data/*
 !data/.gitkeep
 !data/reference/
+!data/reference/README.md
 *.csv
 *.tsv
 *.parquet

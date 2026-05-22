@@ -7,6 +7,11 @@ from pathlib import Path
 
 import pandas as pd
 
+from macro_data_forecasting.database import (
+    get_ingestion_run,
+    list_ingestion_runs,
+    summarize_observation_coverage,
+)
 from macro_data_forecasting.sources.bls import BlsClient
 from macro_data_forecasting.sources.bls_release_calendar import (
     assert_calendar_coverage,
@@ -48,6 +53,24 @@ def _build_parser() -> argparse.ArgumentParser:
     validate_cpi_calendar.add_argument("--calendar", type=Path, required=True)
     validate_cpi_calendar.add_argument("--start-period")
     validate_cpi_calendar.add_argument("--end-period")
+
+    list_runs = subparsers.add_parser("list-runs", help="List ingestion runs")
+    list_runs.add_argument("--limit", type=int, default=10)
+    list_runs.add_argument("--source")
+    list_runs.add_argument("--status")
+    list_runs.add_argument("--database-url")
+
+    show_run = subparsers.add_parser("show-run", help="Show one ingestion run")
+    show_run.add_argument("--run-id", type=int, required=True)
+    show_run.add_argument("--database-url")
+
+    coverage = subparsers.add_parser(
+        "coverage",
+        help="Summarize stored observation coverage",
+    )
+    coverage.add_argument("--source")
+    coverage.add_argument("--series-id")
+    coverage.add_argument("--database-url")
 
     return parser
 
@@ -165,8 +188,59 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         return 0
 
+    if args.command == "list-runs":
+        runs = list_ingestion_runs(
+            database_url=args.database_url,
+            limit=args.limit,
+            source=args.source,
+            status=args.status,
+        )
+        display_columns = [
+            "id",
+            "source",
+            "series_id",
+            "status",
+            "started_at",
+            "finished_at",
+            "rows_seen",
+            "inserted",
+            "updated",
+            "skipped",
+        ]
+        _print_dataframe(runs.loc[:, display_columns], "No ingestion runs found.")
+        return 0
+
+    if args.command == "show-run":
+        run = get_ingestion_run(args.run_id, database_url=args.database_url)
+        if run is None:
+            msg = f"Ingestion run not found: {args.run_id}"
+            raise SystemExit(msg)
+        _print_mapping(run)
+        return 0
+
+    if args.command == "coverage":
+        coverage_summary = summarize_observation_coverage(
+            database_url=args.database_url,
+            source=args.source,
+            series_id=args.series_id,
+        )
+        _print_dataframe(coverage_summary, "No observation coverage found.")
+        return 0
+
     parser.error(f"Unsupported command: {args.command}")
     return 2
+
+
+def _print_dataframe(frame: pd.DataFrame, empty_message: str) -> None:
+    if frame.empty:
+        print(empty_message)
+        return
+    print(frame.to_string(index=False))
+
+
+def _print_mapping(values: dict[str, object]) -> None:
+    for key, value in values.items():
+        print(f"{key}: {value}")
 
 
 def _print_ingestion_result(result: dict[str, int], series_id: str) -> None:

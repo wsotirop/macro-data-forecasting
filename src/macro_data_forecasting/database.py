@@ -18,7 +18,9 @@ from sqlalchemy import (
     String,
     Table,
     Text,
+    case,
     create_engine,
+    func,
     inspect,
     select,
     text,
@@ -28,7 +30,31 @@ from sqlalchemy.engine import Engine, make_url
 
 from macro_data_forecasting.config import get_settings
 
+INGESTION_RUN_COLUMNS = (
+    "id",
+    "source",
+    "series_id",
+    "status",
+    "started_at",
+    "finished_at",
+    "rows_seen",
+    "inserted",
+    "updated",
+    "skipped",
+    "error_message",
+    "parameters_json",
+)
 MISSING_RELEASE_DATE_KEY = "__MISSING__"
+OBSERVATION_COVERAGE_COLUMNS = (
+    "source",
+    "series_id",
+    "row_count",
+    "min_date",
+    "max_date",
+    "min_release_date",
+    "max_release_date",
+    "missing_release_date_count",
+)
 REQUIRED_OBSERVATION_COLUMNS = (
     "series_id",
     "date",
@@ -335,3 +361,83 @@ def fail_ingestion_run(
             ),
         )
     engine.dispose()
+
+
+def list_ingestion_runs(
+    database_url: str | None = None,
+    limit: int = 10,
+    source: str | None = None,
+    status: str | None = None,
+) -> pd.DataFrame:
+    """Return recent ingestion runs sorted newest first."""
+    if limit < 1:
+        msg = "limit must be at least 1."
+        raise ValueError(msg)
+
+    statement = select(ingestion_runs)
+    if source is not None:
+        statement = statement.where(ingestion_runs.c.source == source)
+    if status is not None:
+        statement = statement.where(ingestion_runs.c.status == status)
+    statement = statement.order_by(
+        ingestion_runs.c.started_at.desc(),
+        ingestion_runs.c.id.desc(),
+    ).limit(limit)
+
+    engine = initialize_database(database_url)
+    with engine.connect() as connection:
+        rows = connection.execute(statement).mappings().all()
+    engine.dispose()
+    return pd.DataFrame(rows, columns=INGESTION_RUN_COLUMNS)
+
+
+def get_ingestion_run(
+    run_id: int,
+    database_url: str | None = None,
+) -> dict[str, Any] | None:
+    """Return one ingestion run by ID, or None when it is missing."""
+    engine = initialize_database(database_url)
+    with engine.connect() as connection:
+        row = connection.execute(
+            select(ingestion_runs).where(ingestion_runs.c.id == run_id),
+        ).mappings().one_or_none()
+    engine.dispose()
+    return dict(row) if row is not None else None
+
+
+def summarize_observation_coverage(
+    database_url: str | None = None,
+    source: str | None = None,
+    series_id: str | None = None,
+) -> pd.DataFrame:
+    """Return source and series observation coverage summary rows."""
+    missing_release_dates = func.sum(
+        case((macro_observations.c.release_date.is_(None), 1), else_=0),
+    ).label("missing_release_date_count")
+    statement = select(
+        macro_observations.c.source,
+        macro_observations.c.series_id,
+        func.count().label("row_count"),
+        func.min(macro_observations.c.date).label("min_date"),
+        func.max(macro_observations.c.date).label("max_date"),
+        func.min(macro_observations.c.release_date).label("min_release_date"),
+        func.max(macro_observations.c.release_date).label("max_release_date"),
+        missing_release_dates,
+    )
+    if source is not None:
+        statement = statement.where(macro_observations.c.source == source)
+    if series_id is not None:
+        statement = statement.where(macro_observations.c.series_id == series_id)
+    statement = statement.group_by(
+        macro_observations.c.source,
+        macro_observations.c.series_id,
+    ).order_by(
+        macro_observations.c.source,
+        macro_observations.c.series_id,
+    )
+
+    engine = initialize_database(database_url)
+    with engine.connect() as connection:
+        rows = connection.execute(statement).mappings().all()
+    engine.dispose()
+    return pd.DataFrame(rows, columns=OBSERVATION_COVERAGE_COLUMNS)

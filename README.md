@@ -24,6 +24,7 @@ Macroeconomic forecasting workflows are easy to contaminate with data that was r
 - Stage 2B: BLS CPI/Core CPI ingestion
 - Stage 2C: CPI release calendar validation
 - Stage 2D: Idempotent ingestion and run metadata
+- Stage 2E: Ingestion audit and coverage CLI
 - Stage 3: Point-in-time feature engineering
 - Stage 4: Modeling and walk-forward validation
 - Stage 5: Automated reporting
@@ -37,6 +38,8 @@ Stage 2B adds BLS CPI/Core CPI ingestion for monthly CPI series and a separate C
 Stage 2C adds CPI release-calendar validation and coverage checks. Calendars are checked for schema, duplicate reference months, valid release dates, valid release times, and complete coverage over requested CPI observation periods.
 
 Stage 2D adds idempotent upsert behavior and ingestion-run metadata. Re-running the same ingestion is safe: existing observations are matched by `series_id`, `source`, `date`, and `release_date`, then inserted, updated, or skipped without creating duplicate point-in-time rows.
+
+Stage 2E adds audit commands for inspecting ingestion history and stored observation coverage from the command line.
 
 No Treasury, market-data, feature-engineering, or modeling logic is implemented yet.
 
@@ -57,6 +60,8 @@ Feature engineering and backtesting should require complete CPI release-calendar
 For rows where `release_date` is intentionally missing, such as unmapped BLS observations, the database stores a deterministic internal missing-date key so repeated ingestion still remains idempotent. This is only a storage safety mechanism; it is not a release-date approximation.
 
 Each CLI ingestion command records an `ingestion_runs` row with source, series, parameters, status, timestamps, row counts, and any error message. Failed ingestion runs are recorded and the exception is still surfaced.
+
+Auditability matters because reproducible macro forecasting depends on knowing which data was fetched, when it was fetched, which parameters were used, whether the run succeeded, and what observation coverage is available before building point-in-time features.
 
 ## First Target
 
@@ -127,6 +132,24 @@ uv run python -m macro_data_forecasting.cli validate-cpi-calendar --calendar dat
 ```
 
 Running the same fetch command repeatedly should not create duplicate observations. The CLI reports rows seen, inserted, updated, skipped, and ingestion run status.
+
+List recent ingestion runs:
+
+```powershell
+uv run python -m macro_data_forecasting.cli list-runs
+```
+
+Show one ingestion run:
+
+```powershell
+uv run python -m macro_data_forecasting.cli show-run --run-id 1
+```
+
+Summarize stored observation coverage:
+
+```powershell
+uv run python -m macro_data_forecasting.cli coverage
+```
 
 The included `data/reference/cpi_release_calendar_sample.csv` is only for tests and examples. It is not a complete historical CPI release calendar and should not be used as the production source for point-in-time CPI backtests.
 

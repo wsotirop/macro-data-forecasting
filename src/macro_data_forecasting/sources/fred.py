@@ -2,7 +2,7 @@
 
 import time
 from collections.abc import Iterator
-from datetime import UTC, date
+from datetime import date, timedelta
 from typing import Any
 
 import numpy as np
@@ -145,6 +145,9 @@ class FredClient:
                 realtime_chunk_years=realtime_chunk_years,
                 fetched_at=fetched_at,
                 use_observation_start_floor=realtime_start is None,
+                use_max_realtime_end=(
+                    request_realtime_end == FRED_INITIAL_RELEASE_REALTIME_END
+                ),
             )
 
         payload = self._request_json(
@@ -232,6 +235,7 @@ class FredClient:
         realtime_chunk_years: int,
         fetched_at: pd.Timestamp,
         use_observation_start_floor: bool,
+        use_max_realtime_end: bool,
     ) -> pd.DataFrame:
         if vintage_mode != "initial_release":
             msg = (
@@ -248,12 +252,16 @@ class FredClient:
             realtime_end=realtime_end,
             observation_start=observation_start,
             use_observation_start_floor=use_observation_start_floor,
+            use_max_realtime_end=use_max_realtime_end,
         )
         frames: list[pd.DataFrame] = []
         for start, end in _iter_realtime_chunks(
             chunk_start,
             chunk_end,
             years=realtime_chunk_years,
+            final_realtime_end=FRED_INITIAL_RELEASE_REALTIME_END
+            if use_max_realtime_end
+            else None,
         ):
             try:
                 payload = self._request_json(
@@ -277,8 +285,16 @@ class FredClient:
                     fetched_at=fetched_at,
                 )
             except FredApiError as exc:
-                if _is_no_vintage_dates_error(exc):
-                    continue
+                if _is_realtime_end_after_today_error(exc):
+                    msg = (
+                        "FRED initial_release chunk failed for real-time "
+                        f"window {start} to {end}: FRED rejected realtime_end "
+                        "as after its current server date. Pass a valid "
+                        "--realtime-end or omit it to use the default "
+                        f"{FRED_INITIAL_RELEASE_REALTIME_END} max-date "
+                        f"behavior. Original error: {exc}"
+                    )
+                    raise FredApiError(msg) from exc
                 msg = (
                     "FRED initial_release chunk failed for real-time window "
                     f"{start} to {end}: {exc}"
@@ -374,19 +390,23 @@ def _resolve_chunk_bounds(
     realtime_end: str | None,
     observation_start: str | None,
     use_observation_start_floor: bool,
+    use_max_realtime_end: bool,
 ) -> tuple[date, date]:
     if realtime_start is None or realtime_end is None:
         msg = "Chunked FRED requests require an effective real-time window."
         raise FredApiError(msg)
 
-    start = pd.Timestamp(realtime_start).date()
-    end = pd.Timestamp(realtime_end).date()
-    today = pd.Timestamp.now(tz=UTC).date()
-    if end > today:
-        end = today
+    start = date.fromisoformat(realtime_start)
+    end = date.fromisoformat(realtime_end)
+    if use_max_realtime_end:
+        # Use the local date only as a planning boundary for finding the final
+        # chunk's start. The actual final request uses 9999-12-31 because FRED
+        # explicitly allows that real-time max date even if its server date
+        # lags the local system date.
+        end = date.today()
 
     if use_observation_start_floor and observation_start is not None:
-        observation_floor = pd.Timestamp(observation_start).date()
+        observation_floor = date.fromisoformat(observation_start)
         if observation_floor > start:
             start = observation_floor
 
@@ -400,18 +420,32 @@ def _iter_realtime_chunks(
     start: date,
     end: date,
     years: int,
+    final_realtime_end: str | None = None,
 ) -> Iterator[tuple[str, str]]:
-    current = pd.Timestamp(start)
-    final = pd.Timestamp(end)
+    current = start
+    final = end
     while current <= final:
-        next_start = current + pd.DateOffset(years=years)
-        chunk_end = min(next_start - pd.Timedelta(days=1), final)
-        yield current.date().isoformat(), chunk_end.date().isoformat()
-        current = chunk_end + pd.Timedelta(days=1)
+        next_start = _add_years(current, years)
+        chunk_end = min(next_start - timedelta(days=1), final)
+        request_end = (
+            final_realtime_end
+            if final_realtime_end is not None and chunk_end == final
+            else chunk_end.isoformat()
+        )
+        yield current.isoformat(), request_end
+        current = chunk_end + timedelta(days=1)
 
 
-def _is_no_vintage_dates_error(exc: FredApiError) -> bool:
-    return "no vintage dates exist" in str(exc).lower()
+def _add_years(value: date, years: int) -> date:
+    try:
+        return value.replace(year=value.year + years)
+    except ValueError:
+        return value.replace(month=2, day=28, year=value.year + years)
+
+
+def _is_realtime_end_after_today_error(exc: FredApiError) -> bool:
+    message = str(exc).lower()
+    return "realtime_end" in message and "after today's date" in message
 
 
 def _extract_release_dates(

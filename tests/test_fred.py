@@ -289,6 +289,55 @@ def test_fred_chunked_initial_release_calls_api_multiple_times() -> None:
     assert session.calls[1]["params"]["realtime_end"] == "2023-12-31"
 
 
+def test_fred_chunked_initial_release_default_end_uses_max_final_chunk() -> None:
+    """Verify default chunked initial-release mode ends final chunk at max date."""
+    session = SequenceSession(
+        [
+            FakeResponse(
+                {
+                    "observations": [
+                        {
+                            "realtime_start": "2025-02-01",
+                            "realtime_end": "2025-02-01",
+                            "date": "2025-01-01",
+                            "value": "4.1",
+                        },
+                    ],
+                },
+            ),
+        ],
+    )
+    client = FredClient(api_key="test-key", session=session, backoff_seconds=0)
+
+    client.fetch_series_observations(
+        series_id="DGS2",
+        observation_start="2025-01-01",
+        vintage_mode="initial_release",
+        chunk_realtime=True,
+        realtime_chunk_years=100,
+    )
+
+    params = session.calls[0]["params"]
+    assert params["realtime_start"] == "2025-01-01"
+    assert params["realtime_end"] == "9999-12-31"
+
+
+def test_fred_chunked_initial_release_does_not_use_local_date_as_final_end() -> None:
+    """Verify the final default chunk does not end on the local system date."""
+    session = SequenceSession([FakeResponse({"observations": []})])
+    client = FredClient(api_key="test-key", session=session, backoff_seconds=0)
+
+    client.fetch_series_observations(
+        series_id="DGS10",
+        observation_start="2025-01-01",
+        vintage_mode="initial_release",
+        chunk_realtime=True,
+        realtime_chunk_years=100,
+    )
+
+    assert session.calls[0]["params"]["realtime_end"] == "9999-12-31"
+
+
 def test_fred_chunked_initial_release_drops_exact_duplicates() -> None:
     """Verify exact duplicate normalized observations are removed after chunks."""
     observation = {
@@ -367,6 +416,39 @@ def test_fred_chunked_initial_release_failed_chunk_raises_with_window() -> None:
             vintage_mode="initial_release",
             chunk_realtime=True,
             realtime_chunk_years=1,
+        )
+
+
+def test_fred_chunked_initial_release_after_today_error_has_guidance() -> None:
+    """Verify server-date realtime_end errors include operator guidance."""
+    session = SequenceSession(
+        [
+            FakeResponse(
+                {},
+                status_code=400,
+                text=(
+                    "Variable realtime_end can not be after today's date "
+                    "(2026-05-21)."
+                ),
+            ),
+        ],
+    )
+    client = FredClient(
+        api_key="test-key",
+        session=session,
+        backoff_seconds=0,
+        max_retries=1,
+    )
+
+    with pytest.raises(FredApiError, match="Pass a valid --realtime-end"):
+        client.fetch_series_observations(
+            series_id="DGS2",
+            observation_start="2025-01-01",
+            realtime_start="2025-01-01",
+            realtime_end="2026-05-22",
+            vintage_mode="initial_release",
+            chunk_realtime=True,
+            realtime_chunk_years=5,
         )
 
 

@@ -199,18 +199,21 @@ def test_cli_fetch_fred_chunk_realtime_records_parameters(
         run = connection.execute(select(ingestion_runs)).mappings().one()
     engine.dispose()
     parameters = json.loads(run["parameters_json"])
-    today = pd.Timestamp.now(tz="UTC").date().isoformat()
 
     assert result == 0
     assert "Chunking FRED real-time window into 5-year chunks." in output
+    assert (
+        "Using FRED initial-release mode with chunked real-time window "
+        "2010-01-01 to 9999-12-31."
+    ) in output
     assert FakeFredClient.calls[0]["chunk_realtime"] is True
     assert FakeFredClient.calls[0]["realtime_chunk_years"] == 5
     assert FakeFredClient.calls[0]["realtime_start"] == "2010-01-01"
-    assert FakeFredClient.calls[0]["realtime_end"] == today
+    assert FakeFredClient.calls[0]["realtime_end"] == "9999-12-31"
     assert parameters["chunk_realtime"] is True
     assert parameters["realtime_chunk_years"] == 5
     assert parameters["realtime_start"] == "2010-01-01"
-    assert parameters["realtime_end"] == today
+    assert parameters["realtime_end"] == "9999-12-31"
 
 
 def test_cli_fetch_fred_invalid_vintage_mode_fails() -> None:

@@ -209,9 +209,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             if args.chunk_realtime:
                 if args.realtime_start is None and args.observation_start is not None:
                     fred_realtime_start = args.observation_start
-                today = pd.Timestamp.now(tz="UTC").date()
-                if pd.Timestamp(fred_realtime_end).date() > today:
-                    fred_realtime_end = today.isoformat()
         parameters = {
             "series_id": args.series_id,
             "observation_start": args.observation_start,

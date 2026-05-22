@@ -27,6 +27,7 @@ Macroeconomic forecasting workflows are easy to contaminate with data that was r
 - Stage 2E: Ingestion audit and coverage CLI
 - Stage 2F: FRED/ALFRED initial-release vintage mode
 - Stage 2G: Chunked FRED initial-release ingestion
+- Stage 2H: Robust final window for chunked FRED ingestion
 - Stage 3A: CPI target construction and dataset contract
 - Stage 3B: Point-in-time feature matrix construction
 - Stage 4A: Walk-forward validation with naive and ridge baselines
@@ -53,6 +54,8 @@ Stage 2E adds audit commands for inspecting ingestion history and stored observa
 Stage 2F adds explicit FRED/ALFRED vintage modes, including `initial_release`, which uses FRED `output_type=4` so historical rows use per-observation initial-release vintage dates when FRED provides them.
 
 Stage 2G adds chunked FRED initial-release requests for high-vintage daily series that can exceed FRED's 2,000-vintage-date API limit over a full real-time window.
+
+Stage 2H makes the final chunk robust by using FRED's allowed max real-time date `9999-12-31` for open-ended chunked requests instead of the local system date.
 
 Stage 3A adds the first target-construction contract: U.S. headline CPI month-over-month inflation. It builds a target shell from normalized CPI observations, validates target release dates, and creates an empty model-dataset shell.
 
@@ -87,6 +90,8 @@ For FRED/ALFRED, the observations endpoint provides realtime vintage metadata. T
 FRED `release_date` is still vintage metadata, not a complete official release calendar for every series. The project no longer treats a current-vintage snapshot as historical release timing unless current mode is explicitly used.
 
 Daily or high-frequency FRED series can exceed the API's 2,000 vintage-date limit over a full initial-release real-time window. Use `--chunk-realtime` to split the real-time window into deterministic year-based chunks. Chunking is only supported with `--vintage-mode initial_release`; it still passes `observation_start` and `observation_end` through to every FRED request.
+
+FRED's server date can lag the local system date. For default open-ended chunked initial-release requests, the final chunk uses `realtime_end=9999-12-31` because FRED explicitly allows the real-time max date. If a specific historical cutoff is needed, pass `--realtime-end` explicitly.
 
 For BLS CPI data, `date` is the CPI reference month derived from BLS `year` and `period` fields. The BLS Public Data API does not guarantee exact release dates for every observation in the observation payload, so CPI `release_date` should be mapped from an official CPI release calendar. If no release calendar is supplied, BLS rows may keep `release_date` missing rather than silently approximating it.
 

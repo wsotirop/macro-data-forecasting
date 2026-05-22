@@ -15,6 +15,8 @@ from macro_data_forecasting.database import (
 
 FRED_API_BASE_URL = "https://api.stlouisfed.org/fred"
 NORMALIZED_COLUMNS = list(REQUIRED_OBSERVATION_COLUMNS)
+VALID_OUTPUT_TYPES = {1, 2, 3, 4}
+VALID_VINTAGE_MODES = {"current", "initial_release", "realtime_period"}
 
 
 class FredApiError(RuntimeError):
@@ -112,8 +114,11 @@ class FredClient:
         realtime_end: str | None = None,
         frequency: str | None = None,
         aggregation_method: str | None = None,
+        output_type: int | None = None,
+        vintage_mode: str = "current",
     ) -> pd.DataFrame:
         """Fetch and normalize observations for one FRED/ALFRED series."""
+        request_output_type = _resolve_output_type(output_type, vintage_mode)
         payload = self._request_json(
             "series/observations",
             {
@@ -124,6 +129,7 @@ class FredClient:
                 "realtime_end": realtime_end,
                 "frequency": frequency,
                 "aggregation_method": aggregation_method,
+                "output_type": request_output_type,
             },
         )
         observations = payload.get("observations")
@@ -136,30 +142,20 @@ class FredClient:
         frame = pd.DataFrame(observations)
         fetched_at = pd.Timestamp.now(tz="UTC")
         values = frame["value"].replace({".": np.nan, "": np.nan})
-
-        # FRED observations include ALFRED realtime/vintage metadata, but the
-        # observations endpoint does not provide an exact release calendar date
-        # for every economic reference period. Until explicit release calendars
-        # are integrated, realtime_start is the best available availability date.
-        release_source = frame.get("realtime_start")
-        if release_source is None:
-            release_source = realtime_start or payload.get("realtime_start")
-        if release_source is None:
-            msg = "FRED response did not include realtime_start metadata."
-            raise FredApiError(msg)
+        release_dates = _extract_release_dates(
+            frame=frame,
+            payload=payload,
+            realtime_start=realtime_start,
+            vintage_mode=vintage_mode,
+        )
 
         normalized = pd.DataFrame(
             {
                 "series_id": series_id,
                 "date": pd.to_datetime(frame["date"], errors="raise").dt.date,
-                "value": pd.to_numeric(values, errors="raise"),
+                "value": pd.to_numeric(values, errors="coerce"),
                 "source": "fred",
-                "release_date": pd.to_datetime(
-                    release_source,
-                    errors="raise",
-                ).date
-                if isinstance(release_source, str)
-                else pd.to_datetime(release_source, errors="raise").dt.date,
+                "release_date": release_dates,
                 "fetched_at": fetched_at,
             },
             columns=NORMALIZED_COLUMNS,
@@ -215,3 +211,63 @@ class FredClient:
         """Store validated FRED observations with idempotent upsert counts."""
         validated = self.validate(data)
         return upsert_observations(validated, database_url=database_url)
+
+
+def _resolve_output_type(output_type: int | None, vintage_mode: str) -> int | None:
+    if vintage_mode not in VALID_VINTAGE_MODES:
+        msg = (
+            f"Unsupported FRED vintage_mode: {vintage_mode}. "
+            f"Supported values are {sorted(VALID_VINTAGE_MODES)}."
+        )
+        raise FredApiError(msg)
+    if output_type is not None and output_type not in VALID_OUTPUT_TYPES:
+        msg = (
+            f"Unsupported FRED output_type: {output_type}. "
+            f"Supported values are {sorted(VALID_OUTPUT_TYPES)}."
+        )
+        raise FredApiError(msg)
+    if output_type is not None:
+        return output_type
+    if vintage_mode == "initial_release":
+        return 4
+    if vintage_mode == "realtime_period":
+        return 1
+    return None
+
+
+def _extract_release_dates(
+    frame: pd.DataFrame,
+    payload: dict[str, Any],
+    realtime_start: str | None,
+    vintage_mode: str,
+) -> pd.Series:
+    if vintage_mode == "initial_release":
+        if "realtime_start" not in frame.columns:
+            msg = (
+                "FRED initial_release mode requires per-observation "
+                "realtime_start metadata."
+            )
+            raise FredApiError(msg)
+        if frame["realtime_start"].isna().any():
+            msg = (
+                "FRED initial_release mode received observations with missing "
+                "realtime_start metadata."
+            )
+            raise FredApiError(msg)
+        return pd.to_datetime(frame["realtime_start"], errors="raise").dt.date
+
+    release_source = frame.get("realtime_start")
+    if release_source is None:
+        release_source = realtime_start or payload.get("realtime_start")
+    if release_source is None:
+        msg = "FRED response did not include realtime_start metadata."
+        raise FredApiError(msg)
+
+    # In current-vintage mode, FRED may return the same realtime_start for every
+    # historical observation. That is a snapshot/vintage proxy, not proof that
+    # every historical value was available on that date. Use initial_release
+    # mode for strict historical point-in-time feature construction.
+    if isinstance(release_source, str):
+        parsed = pd.to_datetime(release_source, errors="raise").date()
+        return pd.Series([parsed] * len(frame), index=frame.index)
+    return pd.to_datetime(release_source, errors="raise").dt.date

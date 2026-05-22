@@ -25,6 +25,7 @@ Macroeconomic forecasting workflows are easy to contaminate with data that was r
 - Stage 2C: CPI release calendar validation
 - Stage 2D: Idempotent ingestion and run metadata
 - Stage 2E: Ingestion audit and coverage CLI
+- Stage 2F: FRED/ALFRED initial-release vintage mode
 - Stage 3A: CPI target construction and dataset contract
 - Stage 3B: Point-in-time feature matrix construction
 - Stage 4A: Walk-forward validation with naive and ridge baselines
@@ -47,6 +48,8 @@ Stage 2C adds CPI release-calendar validation and coverage checks. Calendars are
 Stage 2D adds idempotent upsert behavior and ingestion-run metadata. Re-running the same ingestion is safe: existing observations are matched by `series_id`, `source`, `date`, and `release_date`, then inserted, updated, or skipped without creating duplicate point-in-time rows.
 
 Stage 2E adds audit commands for inspecting ingestion history and stored observation coverage from the command line.
+
+Stage 2F adds explicit FRED/ALFRED vintage modes, including `initial_release`, which uses FRED `output_type=4` so historical rows use per-observation initial-release vintage dates when FRED provides them.
 
 Stage 3A adds the first target-construction contract: U.S. headline CPI month-over-month inflation. It builds a target shell from normalized CPI observations, validates target release dates, and creates an empty model-dataset shell.
 
@@ -72,7 +75,13 @@ Every stored observation distinguishes:
 - `release_date`: the best available date when the value became observable.
 - `fetched_at`: the timestamp when this system fetched the value.
 
-For FRED/ALFRED, the observations endpoint provides realtime vintage metadata. Until exact release calendars are integrated, this project uses each observation's `realtime_start` vintage date as the best available `release_date` approximation. This preserves vintage awareness but should not be treated as a perfect official release timestamp for every series.
+For FRED/ALFRED, the observations endpoint provides realtime vintage metadata. The CLI supports three FRED vintage modes:
+
+- `current`: the default compatibility mode. It fetches the current vintage snapshot. This can make all historical observations appear available on the same current vintage date, so it is not suitable for strict historical point-in-time feature construction.
+- `initial_release`: uses FRED `output_type=4` and maps each observation's `realtime_start` to `release_date`. This is recommended for strict historical point-in-time macro features when FRED provides the required metadata.
+- `realtime_period`: uses FRED `output_type=1` with user-provided realtime bounds for explicit realtime-period requests.
+
+FRED `release_date` is still vintage metadata, not a complete official release calendar for every series. The project no longer treats a current-vintage snapshot as historical release timing unless current mode is explicitly used.
 
 For BLS CPI data, `date` is the CPI reference month derived from BLS `year` and `period` fields. The BLS Public Data API does not guarantee exact release dates for every observation in the observation payload, so CPI `release_date` should be mapped from an official CPI release calendar. If no release calendar is supplied, BLS rows may keep `release_date` missing rather than silently approximating it.
 
@@ -191,6 +200,18 @@ Fetch and store CPI observations:
 
 ```powershell
 uv run python -m macro_data_forecasting.cli fetch-fred --series-id CPIAUCSL --start 2010-01-01
+```
+
+Fetch and store FRED initial-release observations for point-in-time features:
+
+```powershell
+uv run python -m macro_data_forecasting.cli fetch-fred --series-id UNRATE --start 2010-01-01 --vintage-mode initial_release
+```
+
+Fetch a FRED realtime period explicitly:
+
+```powershell
+uv run python -m macro_data_forecasting.cli fetch-fred --series-id UNRATE --start 2010-01-01 --vintage-mode realtime_period --realtime-start 2018-01-01 --realtime-end 2020-01-01
 ```
 
 Fetch and store BLS headline CPI observations:

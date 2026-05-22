@@ -1,5 +1,7 @@
 """Tests for command-line ingestion workflows."""
 
+import json
+
 import pandas as pd
 import pytest
 from sqlalchemy import func, select
@@ -20,8 +22,11 @@ from macro_data_forecasting.sources.bls_release_calendar import CalendarCoverage
 class FakeFredClient:
     """Fake FRED client for CLI tests."""
 
+    calls: list[dict[str, object]] = []
+
     def fetch_series_observations(self, **kwargs) -> pd.DataFrame:
         """Return one normalized FRED observation."""
+        self.calls.append(kwargs)
         return pd.DataFrame(
             {
                 "series_id": [kwargs["series_id"]],
@@ -78,6 +83,7 @@ class FakeBlsClient:
 def test_cli_fetch_fred_records_ingestion_run(monkeypatch, tmp_path, capsys) -> None:
     """Verify fetch-fred uses upsert storage and records a succeeded run."""
     database_url = f"sqlite:///{(tmp_path / 'macro.sqlite').as_posix()}"
+    FakeFredClient.calls = []
     monkeypatch.setattr(cli, "FredClient", FakeFredClient)
 
     result = cli.main(
@@ -105,7 +111,64 @@ def test_cli_fetch_fred_records_ingestion_run(monkeypatch, tmp_path, capsys) -> 
     assert "Rows seen: 1" in output
     assert "Inserted: 1" in output
     assert run["status"] == "succeeded"
+    assert FakeFredClient.calls[0]["vintage_mode"] == "current"
     assert stored_count == 1
+
+
+def test_cli_fetch_fred_initial_release_records_vintage_parameters(
+    monkeypatch,
+    tmp_path,
+    capsys,
+) -> None:
+    """Verify fetch-fred supports initial-release mode and records parameters."""
+    database_url = f"sqlite:///{(tmp_path / 'macro.sqlite').as_posix()}"
+    FakeFredClient.calls = []
+    monkeypatch.setattr(cli, "FredClient", FakeFredClient)
+
+    result = cli.main(
+        [
+            "fetch-fred",
+            "--series-id",
+            "UNRATE",
+            "--start",
+            "2010-01-01",
+            "--vintage-mode",
+            "initial_release",
+            "--database-url",
+            database_url,
+        ],
+    )
+
+    output = capsys.readouterr().out
+    engine = get_engine(database_url)
+    with engine.connect() as connection:
+        run = connection.execute(select(ingestion_runs)).mappings().one()
+    engine.dispose()
+    parameters = json.loads(run["parameters_json"])
+
+    assert result == 0
+    assert "Using FRED initial-release mode." in output
+    assert FakeFredClient.calls[0]["vintage_mode"] == "initial_release"
+    assert FakeFredClient.calls[0]["output_type"] == 4
+    assert parameters["vintage_mode"] == "initial_release"
+    assert parameters["output_type"] == 4
+    assert parameters["observation_start"] == "2010-01-01"
+    assert parameters["realtime_start"] is None
+    assert parameters["realtime_end"] is None
+
+
+def test_cli_fetch_fred_invalid_vintage_mode_fails() -> None:
+    """Verify argparse rejects unsupported FRED vintage modes."""
+    with pytest.raises(SystemExit):
+        cli.main(
+            [
+                "fetch-fred",
+                "--series-id",
+                "UNRATE",
+                "--vintage-mode",
+                "bad-mode",
+            ],
+        )
 
 
 def test_cli_fetch_bls_strict_calendar_fails_before_storage(

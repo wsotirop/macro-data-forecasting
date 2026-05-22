@@ -63,6 +63,12 @@ def _build_parser() -> argparse.ArgumentParser:
     fetch_fred.add_argument("--realtime-end")
     fetch_fred.add_argument("--frequency")
     fetch_fred.add_argument("--aggregation-method")
+    fetch_fred.add_argument("--output-type", type=int)
+    fetch_fred.add_argument(
+        "--vintage-mode",
+        choices=["current", "initial_release", "realtime_period"],
+        default="current",
+    )
     fetch_fred.add_argument("--database-url")
 
     fetch_bls = subparsers.add_parser("fetch-bls", help="Fetch and store BLS data")
@@ -182,6 +188,11 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command == "fetch-fred":
         client = FredClient()
+        fred_output_type = args.output_type
+        if fred_output_type is None and args.vintage_mode == "initial_release":
+            fred_output_type = 4
+        if fred_output_type is None and args.vintage_mode == "realtime_period":
+            fred_output_type = 1
         parameters = {
             "series_id": args.series_id,
             "observation_start": args.observation_start,
@@ -190,7 +201,19 @@ def main(argv: Sequence[str] | None = None) -> int:
             "realtime_end": args.realtime_end,
             "frequency": args.frequency,
             "aggregation_method": args.aggregation_method,
+            "output_type": fred_output_type,
+            "vintage_mode": args.vintage_mode,
         }
+        if args.vintage_mode == "current":
+            warnings.warn(
+                "FRED current vintage mode stores release_date as a vintage "
+                "snapshot proxy and is not suitable for strict historical "
+                "point-in-time feature construction.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+        if args.vintage_mode == "initial_release":
+            print("Using FRED initial-release mode.")
         result = run_ingestion(
             source="fred",
             series_id=args.series_id,

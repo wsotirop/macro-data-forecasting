@@ -440,3 +440,97 @@ def test_cli_build_feature_matrix_writes_output_csv(tmp_path) -> None:
     assert output_path.exists()
     assert "feature_UNRATE_latest" in written.columns
     assert len(written) == 2
+
+
+def _validation_dataset(rows: int = 8) -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "forecast_timestamp": pd.date_range("2026-01-01", periods=rows, freq="MS"),
+            "target_id": ["cpi_mom"] * rows,
+            "target_reference_date": pd.date_range(
+                "2025-12-01",
+                periods=rows,
+                freq="MS",
+            ),
+            "target_release_date": pd.date_range(
+                "2026-01-01",
+                periods=rows,
+                freq="MS",
+            ),
+            "target_value": [float(index) for index in range(rows)],
+            "feature_UNRATE_latest": [float(index) for index in range(rows)],
+        },
+    )
+
+
+def test_cli_validate_model_works_on_feature_matrix_csv(tmp_path, capsys) -> None:
+    """Verify validate-model prints metrics for a feature matrix CSV."""
+    dataset_path = tmp_path / "feature_matrix.csv"
+    _validation_dataset().to_csv(dataset_path, index=False)
+
+    result = cli.main(
+        [
+            "validate-model",
+            "--dataset",
+            str(dataset_path),
+            "--model",
+            "naive_last_value",
+            "--min-train-size",
+            "3",
+        ],
+    )
+
+    output = capsys.readouterr().out
+    assert result == 0
+    assert "Model: naive_last_value" in output
+    assert "rmse:" in output
+
+
+def test_cli_validate_model_writes_forecasts_csv(tmp_path) -> None:
+    """Verify validate-model writes forecast-level predictions."""
+    dataset_path = tmp_path / "feature_matrix.csv"
+    output_path = tmp_path / "forecasts.csv"
+    _validation_dataset().to_csv(dataset_path, index=False)
+
+    result = cli.main(
+        [
+            "validate-model",
+            "--dataset",
+            str(dataset_path),
+            "--model",
+            "naive_last_value",
+            "--min-train-size",
+            "3",
+            "--output",
+            str(output_path),
+        ],
+    )
+
+    written = pd.read_csv(output_path)
+    assert result == 0
+    assert output_path.exists()
+    assert len(written) == 5
+    assert "prediction" in written.columns
+
+
+def test_cli_validate_model_ridge_reports_naive_comparison(tmp_path, capsys) -> None:
+    """Verify ridge validation also prints naive comparison."""
+    dataset_path = tmp_path / "feature_matrix.csv"
+    _validation_dataset().to_csv(dataset_path, index=False)
+
+    result = cli.main(
+        [
+            "validate-model",
+            "--dataset",
+            str(dataset_path),
+            "--model",
+            "ridge",
+            "--min-train-size",
+            "3",
+        ],
+    )
+
+    output = capsys.readouterr().out
+    assert result == 0
+    assert "Naive comparison:" in output
+    assert "model_beats_naive_rmse" in output

@@ -27,6 +27,7 @@ Macroeconomic forecasting workflows are easy to contaminate with data that was r
 - Stage 2E: Ingestion audit and coverage CLI
 - Stage 3A: CPI target construction and dataset contract
 - Stage 3B: Point-in-time feature matrix construction
+- Stage 4A: Walk-forward validation with naive and ridge baselines
 - Stage 3: Point-in-time feature engineering
 - Stage 4: Modeling and walk-forward validation
 - Stage 5: Automated reporting
@@ -47,7 +48,9 @@ Stage 3A adds the first target-construction contract: U.S. headline CPI month-ov
 
 Stage 3B adds the first simple point-in-time feature matrix. Feature values are selected using `release_date <= forecast_timestamp`, never by reference date alone.
 
-No Treasury, market-data, modeling, or full feature-engineering logic is implemented yet.
+Stage 4A adds walk-forward validation plus naive last-value and ridge regression baselines.
+
+No Treasury, market-data, LightGBM, or full reporting logic is implemented yet.
 
 ## Point-In-Time Columns
 
@@ -100,6 +103,17 @@ feature_{series_id}_latest
 ```
 
 Optional lagged target features can be added as `feature_target_lag_1`, etc. These lags are computed from prior target rows only and do not use the current target value.
+
+## Walk-Forward Validation
+
+Macro model validation uses expanding-window walk-forward validation only. No k-fold cross-validation is used because it would mix future and past observations in a way that can create lookahead bias.
+
+For each forecast row, the validator trains only on rows strictly before that row. Stage 4A includes:
+
+- `naive_last_value`: predicts the previous known `target_value`.
+- `ridge`: fits a scikit-learn pipeline with median imputation, standard scaling, and ridge regression.
+
+If ridge does not beat the naive baseline, the CLI reports that plainly.
 
 ## First Target
 
@@ -199,6 +213,12 @@ Build a simple point-in-time feature matrix:
 
 ```powershell
 uv run python -m macro_data_forecasting.cli build-feature-matrix --target-series-id CUSR0000SA0 --features UNRATE FEDFUNDS DGS2 DGS10 T10Y2Y --output data/processed/cpi_feature_matrix.csv
+```
+
+Run walk-forward validation:
+
+```powershell
+uv run python -m macro_data_forecasting.cli validate-model --dataset data/processed/cpi_feature_matrix.csv --model ridge --output reports/ridge_forecasts.csv
 ```
 
 The included `data/reference/cpi_release_calendar_sample.csv` is only for tests and examples. It is not a complete historical CPI release calendar and should not be used as the production source for point-in-time CPI backtests.

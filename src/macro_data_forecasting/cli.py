@@ -13,6 +13,10 @@ from macro_data_forecasting.database import (
     load_observations,
     summarize_observation_coverage,
 )
+from macro_data_forecasting.evaluation.metrics import (
+    compare_to_naive,
+    evaluate_forecasts,
+)
 from macro_data_forecasting.features.dataset_contract import (
     FEATURE_DATASET_BASE_COLUMNS,
     create_empty_feature_dataset,
@@ -23,6 +27,7 @@ from macro_data_forecasting.features.feature_matrix import (
     build_point_in_time_feature_matrix,
 )
 from macro_data_forecasting.features.targets import build_cpi_mom_target
+from macro_data_forecasting.models.validation import walk_forward_validate
 from macro_data_forecasting.sources.bls import BlsClient
 from macro_data_forecasting.sources.bls_release_calendar import (
     assert_calendar_coverage,
@@ -107,6 +112,19 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
     )
     build_feature_matrix.add_argument("--database-url")
+
+    validate_model = subparsers.add_parser(
+        "validate-model",
+        help="Run walk-forward validation for a baseline model",
+    )
+    validate_model.add_argument("--dataset", type=Path, required=True)
+    validate_model.add_argument(
+        "--model",
+        choices=["naive_last_value", "ridge"],
+        required=True,
+    )
+    validate_model.add_argument("--min-train-size", type=int, default=24)
+    validate_model.add_argument("--output", type=Path)
 
     return parser
 
@@ -318,6 +336,41 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"Shape: {feature_matrix.shape}")
         return 0
 
+    if args.command == "validate-model":
+        dataset = pd.read_csv(args.dataset)
+        forecasts = walk_forward_validate(
+            dataset,
+            model_name=args.model,
+            min_train_size=args.min_train_size,
+        )
+        metrics = evaluate_forecasts(forecasts)
+        print(f"Model: {args.model}")
+        _print_metrics(metrics)
+
+        if args.model == "ridge":
+            naive_forecasts = walk_forward_validate(
+                dataset,
+                model_name="naive_last_value",
+                min_train_size=args.min_train_size,
+            )
+            comparison = compare_to_naive(forecasts, naive_forecasts)
+            print("Naive comparison:")
+            _print_metrics(comparison)
+            if comparison["model_beats_naive_rmse"] == 1.0:
+                print("Model beats naive on RMSE.")
+            else:
+                print("Model does not beat naive on RMSE.")
+            if comparison["model_beats_naive_mae"] == 1.0:
+                print("Model beats naive on MAE.")
+            else:
+                print("Model does not beat naive on MAE.")
+
+        if args.output is not None:
+            args.output.parent.mkdir(parents=True, exist_ok=True)
+            forecasts.to_csv(args.output, index=False)
+            print(f"Wrote {len(forecasts)} forecasts to {args.output}")
+        return 0
+
     parser.error(f"Unsupported command: {args.command}")
     return 2
 
@@ -331,6 +384,11 @@ def _print_dataframe(frame: pd.DataFrame, empty_message: str) -> None:
 
 def _print_mapping(values: dict[str, object]) -> None:
     for key, value in values.items():
+        print(f"{key}: {value}")
+
+
+def _print_metrics(metrics: dict[str, float]) -> None:
+    for key, value in metrics.items():
         print(f"{key}: {value}")
 
 
